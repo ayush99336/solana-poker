@@ -1,0 +1,489 @@
+{
+    "address": "HY5CHkW7FEvCMdZLKrQ4w2Vr6krGtnJ1Kttd2WPqW9WC",
+    "metadata": {
+      "name": "private_raffle",
+      "version": "0.1.0",
+      "spec": "0.1.0",
+      "description": "Private raffle using Inco Lightning "
+    },
+    "instructions": [
+      {
+        "name": "buy_ticket",
+        "discriminator": [
+          11,
+          24,
+          17,
+          193,
+          168,
+          116,
+          164,
+          169
+        ],
+        "accounts": [
+          {
+            "name": "buyer",
+            "writable": true,
+            "signer": true
+          },
+          {
+            "name": "raffle",
+            "writable": true
+          },
+          {
+            "name": "ticket",
+            "writable": true,
+            "pda": {
+              "seeds": [
+                {
+                  "kind": "const",
+                  "value": [
+                    116,
+                    105,
+                    99,
+                    107,
+                    101,
+                    116
+                  ]
+                },
+                {
+                  "kind": "account",
+                  "path": "raffle"
+                },
+                {
+                  "kind": "account",
+                  "path": "buyer"
+                }
+              ]
+            }
+          },
+          {
+            "name": "vault",
+            "writable": true,
+            "pda": {
+              "seeds": [
+                {
+                  "kind": "const",
+                  "value": [
+                    118,
+                    97,
+                    117,
+                    108,
+                    116
+                  ]
+                },
+                {
+                  "kind": "account",
+                  "path": "raffle"
+                }
+              ]
+            }
+          },
+          {
+            "name": "system_program",
+            "address": "11111111111111111111111111111111"
+          },
+          {
+            "name": "inco_lightning_program",
+            "address": "5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj"
+          }
+        ],
+        "args": [
+          {
+            "name": "encrypted_guess",
+            "type": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "check_winner",
+        "discriminator": [
+          246,
+          195,
+          208,
+          54,
+          162,
+          217,
+          84,
+          64
+        ],
+        "accounts": [
+          {
+            "name": "checker",
+            "writable": true,
+            "signer": true
+          },
+          {
+            "name": "raffle"
+          },
+          {
+            "name": "ticket",
+            "writable": true
+          },
+          {
+            "name": "system_program",
+            "address": "11111111111111111111111111111111"
+          },
+          {
+            "name": "inco_lightning_program",
+            "address": "5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj"
+          }
+        ],
+        "args": []
+      },
+      {
+        "name": "create_raffle",
+        "discriminator": [
+          226,
+          206,
+          159,
+          34,
+          213,
+          207,
+          98,
+          126
+        ],
+        "accounts": [
+          {
+            "name": "authority",
+            "writable": true,
+            "signer": true
+          },
+          {
+            "name": "raffle",
+            "writable": true,
+            "pda": {
+              "seeds": [
+                {
+                  "kind": "const",
+                  "value": [
+                    114,
+                    97,
+                    102,
+                    102,
+                    108,
+                    101
+                  ]
+                },
+                {
+                  "kind": "arg",
+                  "path": "raffle_id"
+                }
+              ]
+            }
+          },
+          {
+            "name": "vault",
+            "writable": true,
+            "pda": {
+              "seeds": [
+                {
+                  "kind": "const",
+                  "value": [
+                    118,
+                    97,
+                    117,
+                    108,
+                    116
+                  ]
+                },
+                {
+                  "kind": "account",
+                  "path": "raffle"
+                }
+              ]
+            }
+          },
+          {
+            "name": "system_program",
+            "address": "11111111111111111111111111111111"
+          }
+        ],
+        "args": [
+          {
+            "name": "raffle_id",
+            "type": "u64"
+          },
+          {
+            "name": "ticket_price",
+            "type": "u64"
+          }
+        ]
+      },
+      {
+        "name": "draw_winner",
+        "docs": [
+          "Draw a random winning number (1-100) using on-chain randomness"
+        ],
+        "discriminator": [
+          250,
+          103,
+          118,
+          147,
+          219,
+          235,
+          169,
+          220
+        ],
+        "accounts": [
+          {
+            "name": "authority",
+            "writable": true,
+            "signer": true
+          },
+          {
+            "name": "raffle",
+            "writable": true
+          },
+          {
+            "name": "system_program",
+            "address": "11111111111111111111111111111111"
+          },
+          {
+            "name": "inco_lightning_program",
+            "address": "5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj"
+          }
+        ],
+        "args": []
+      },
+      {
+        "name": "withdraw_prize",
+        "docs": [
+          "Withdraw prize by proving winner status (is_winner_handle decryption)"
+        ],
+        "discriminator": [
+          125,
+          86,
+          6,
+          204,
+          176,
+          159,
+          61,
+          119
+        ],
+        "accounts": [
+          {
+            "name": "winner",
+            "writable": true,
+            "signer": true
+          },
+          {
+            "name": "raffle",
+            "writable": true
+          },
+          {
+            "name": "ticket",
+            "writable": true
+          },
+          {
+            "name": "vault",
+            "writable": true,
+            "pda": {
+              "seeds": [
+                {
+                  "kind": "const",
+                  "value": [
+                    118,
+                    97,
+                    117,
+                    108,
+                    116
+                  ]
+                },
+                {
+                  "kind": "account",
+                  "path": "raffle"
+                }
+              ]
+            }
+          },
+          {
+            "name": "instructions",
+            "address": "Sysvar1nstructions1111111111111111111111111"
+          },
+          {
+            "name": "system_program",
+            "address": "11111111111111111111111111111111"
+          },
+          {
+            "name": "inco_lightning_program",
+            "address": "5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj"
+          }
+        ],
+        "args": [
+          {
+            "name": "handle",
+            "type": "bytes"
+          },
+          {
+            "name": "plaintext",
+            "type": "bytes"
+          }
+        ]
+      }
+    ],
+    "accounts": [
+      {
+        "name": "Raffle",
+        "discriminator": [
+          143,
+          133,
+          63,
+          173,
+          138,
+          10,
+          142,
+          200
+        ]
+      },
+      {
+        "name": "Ticket",
+        "discriminator": [
+          41,
+          228,
+          24,
+          165,
+          78,
+          90,
+          235,
+          200
+        ]
+      }
+    ],
+    "errors": [
+      {
+        "code": 6000,
+        "name": "RaffleClosed",
+        "msg": "Raffle is closed"
+      },
+      {
+        "code": 6001,
+        "name": "RaffleStillOpen",
+        "msg": "Raffle is still open"
+      },
+      {
+        "code": 6002,
+        "name": "NoWinningNumber",
+        "msg": "No winning number set"
+      },
+      {
+        "code": 6003,
+        "name": "NoParticipants",
+        "msg": "No participants"
+      },
+      {
+        "code": 6004,
+        "name": "NotOwner",
+        "msg": "Not ticket owner"
+      },
+      {
+        "code": 6005,
+        "name": "AlreadyClaimed",
+        "msg": "Already claimed"
+      },
+      {
+        "code": 6006,
+        "name": "NotChecked",
+        "msg": "Ticket not checked yet"
+      },
+      {
+        "code": 6007,
+        "name": "NotClaimed",
+        "msg": "Not claimed yet"
+      },
+      {
+        "code": 6008,
+        "name": "NotWinner",
+        "msg": "Not the winner"
+      },
+      {
+        "code": 6009,
+        "name": "Unauthorized",
+        "msg": "Unauthorized"
+      },
+      {
+        "code": 6010,
+        "name": "NoFunds",
+        "msg": "No funds in vault"
+      }
+    ],
+    "types": [
+      {
+        "name": "Raffle",
+        "docs": [
+          "Raffle account"
+        ],
+        "type": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "authority",
+              "type": "pubkey"
+            },
+            {
+              "name": "raffle_id",
+              "type": "u64"
+            },
+            {
+              "name": "ticket_price",
+              "type": "u64"
+            },
+            {
+              "name": "participant_count",
+              "type": "u32"
+            },
+            {
+              "name": "is_open",
+              "type": "bool"
+            },
+            {
+              "name": "prize_claimed",
+              "type": "bool"
+            },
+            {
+              "name": "winning_number_handle",
+              "type": "u128"
+            },
+            {
+              "name": "bump",
+              "type": "u8"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Ticket",
+        "docs": [
+          "Ticket account"
+        ],
+        "type": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "raffle",
+              "type": "pubkey"
+            },
+            {
+              "name": "owner",
+              "type": "pubkey"
+            },
+            {
+              "name": "guess_handle",
+              "type": "u128"
+            },
+            {
+              "name": "is_winner_handle",
+              "type": "u128"
+            },
+            {
+              "name": "claimed",
+              "type": "bool"
+            },
+            {
+              "name": "bump",
+              "type": "u8"
+            }
+          ]
+        }
+      }
+    ]
+}

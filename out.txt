@@ -1,0 +1,8 @@
+➜  solana-poker git:(main) ✗ anchor deploy --program-name solana-poker
+Deploying cluster: https://devnet.helius-rpc.com/?api-key=19e8e7a6-48a7-405a-95d6-27123b062c3d
+Upgrade authority: /home/ayush99336/.config/solana/id.json
+Deploying program "solana_poker"...
+Program path: /home/ayush99336/Desktop/BlockchainDev/Rust/solana-poker/target/deploy/solana_poker.so...
+Program Id: 7EZ1zWNMjuHh62dikk9TAo478VMzAiLkvg8S7Vm85T7s
+
+Signature: 7ZQN9F4KcWutEiyk44R37PM7KSFGJf9ZuJwQ3qWven5qFyVY75WstZZN2t1hwszKTQeDZWqP4yGHWJ4chqQBT9M
