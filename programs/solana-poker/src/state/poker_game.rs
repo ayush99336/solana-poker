@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use inco_lightning::types::Euint128;
+use inco_lightning::types::{Euint128};
 use super::GameStage;
 
 /// Active poker game state

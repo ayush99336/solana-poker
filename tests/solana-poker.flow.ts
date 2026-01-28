@@ -141,7 +141,82 @@ describe("solana-poker: Round Flow", () => {
   let decryptedFlopCards: string[] = [];
   let decryptedTurnCard: string | null = null;
   let decryptedRiverCard: string | null = null;
+  let shuffleRandomAllowed = false;
+  let lastShuffleRandomHandle: string | null = null;
+  let lastShuffleRandomPlaintext: string | null = null;
   const extractHandle = (h: any) => h;
+
+  const logShuffleRandom = async (label: string) => {
+    const game = await program.account.pokerGame.fetch(gamePda);
+    const handle = extractHandle(game.shuffleRandom);
+
+    const handleString = handleToDecimalString(handle);
+    if (lastShuffleRandomHandle && lastShuffleRandomHandle !== handleString) {
+      console.log(`shuffle_random ${label}: HANDLE CHANGED`, lastShuffleRandomHandle, "->", handleString);
+    } else {
+      console.log(`shuffle_random ${label} handle:`, handleString.slice(0, 16));
+    }
+    lastShuffleRandomHandle = handleString;
+
+    if (!shuffleRandomAllowed) {
+      const allowance = anchor.web3.PublicKey.findProgramAddressSync(
+        [handleToBytesLE(handle), admin.publicKey.toBuffer()],
+        INCO_LIGHTNING_ID
+      )[0];
+
+      await sendAndConfirm(
+        () =>
+          program.methods
+            .revealShuffleRandom()
+            .accounts({
+              table: tablePda,
+              game: gamePda,
+              admin: admin.publicKey,
+              player: admin.publicKey,
+              incoLightningProgram: INCO_LIGHTNING_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+            })
+            .remainingAccounts([{ pubkey: allowance, isWritable: true, isSigner: false }])
+            .rpc(),
+        "revealShuffleRandom"
+      );
+
+      shuffleRandomAllowed = true;
+    }
+
+    const signMessage = getSignMessage();
+    if (!signMessage) {
+      console.log(`shuffle_random ${label}: signMessage not available`);
+      return;
+    }
+
+    try {
+      const result = await decryptWithRetry(
+        [handleToDecimalString(handle)],
+        admin.publicKey,
+        signMessage,
+        `shuffle_random ${label}`,
+        5,
+        200
+      );
+      const plaintext = result.plaintexts[0];
+      if (lastShuffleRandomPlaintext && lastShuffleRandomPlaintext !== plaintext) {
+        console.log(
+          `shuffle_random ${label}: PLAINTEXT CHANGED`,
+          lastShuffleRandomPlaintext,
+          "->",
+          plaintext,
+          "% 52:",
+          toCardIndex(plaintext)
+        );
+      } else {
+        console.log(`shuffle_random ${label}:`, plaintext, "% 52:", toCardIndex(plaintext));
+      }
+      lastShuffleRandomPlaintext = plaintext;
+    } catch (err: any) {
+      console.log(`shuffle_random ${label} decrypt failed:`, err?.message ?? String(err));
+    }
+  };
 
   const buildRoundSummary = (args: {
     roundId: number;
@@ -335,10 +410,13 @@ describe("solana-poker: Round Flow", () => {
             .rpc(),
         `processCardsBatch(${batch})`
       );
+
+      await logShuffleRandom(`after batch ${batch}`);
     }
   });
 
   it("3. Reveal all hands (allow decryption access)", async () => {
+    await logShuffleRandom("step 3");
     const game = await program.account.pokerGame.fetch(gamePda);
     const players = [
       { label: "admin", publicKey: admin.publicKey, seatPda: adminSeatPda, signMessage: getSignMessage() },
@@ -394,7 +472,6 @@ describe("solana-poker: Round Flow", () => {
       if (player.signMessage) {
         const handles = [handleToDecimalString(h1), handleToDecimalString(h2)];
         try {
-          await waitBeforeDecrypt();
           const result = await decryptWithRetry(
             handles,
             player.publicKey,
@@ -451,6 +528,7 @@ describe("solana-poker: Round Flow", () => {
   });
 
   it("5. Advance to Flop and update round", async () => {
+    await logShuffleRandom("step 5");
     const game = await program.account.pokerGame.fetch(gamePda);
 
     const commHandles = [
@@ -499,7 +577,6 @@ describe("solana-poker: Round Flow", () => {
     if (signMessage) {
       const handles = commHandles.map((h) => handleToDecimalString(h));
       try {
-        await waitBeforeDecrypt();
         const result = await decryptWithRetry(handles, admin.publicKey, signMessage, "flop", 5, 200);
         decryptedFlopCards = result.plaintexts;
         const flopMod = result.plaintexts.map(toCardIndex);
@@ -543,6 +620,7 @@ describe("solana-poker: Round Flow", () => {
   });
 
   it("6. Advance to Turn and update round", async () => {
+    await logShuffleRandom("step 6");
     const game = await program.account.pokerGame.fetch(gamePda);
     const handle = extractHandle(game.communityCards[3]);
 
@@ -573,7 +651,6 @@ describe("solana-poker: Round Flow", () => {
     const signMessage = getSignMessage();
     if (signMessage) {
       try {
-        await waitBeforeDecrypt();
         const result = await decryptWithRetry([handleToDecimalString(handle)], admin.publicKey, signMessage, "turn", 5, 200);
         decryptedTurnCard = result.plaintexts[0];
         const turnMod = toCardIndex(result.plaintexts[0]);
@@ -617,6 +694,7 @@ describe("solana-poker: Round Flow", () => {
   });
 
   it("7. Advance to River and update round", async () => {
+    await logShuffleRandom("step 7");
     const game = await program.account.pokerGame.fetch(gamePda);
     const handle = extractHandle(game.communityCards[4]);
 
@@ -647,7 +725,6 @@ describe("solana-poker: Round Flow", () => {
     const signMessage = getSignMessage();
     if (signMessage) {
       try {
-        await waitBeforeDecrypt();
         const result = await decryptWithRetry([handleToDecimalString(handle)], admin.publicKey, signMessage, "river", 5, 200);
         decryptedRiverCard = result.plaintexts[0];
         const riverMod = toCardIndex(result.plaintexts[0]);

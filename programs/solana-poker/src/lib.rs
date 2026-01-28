@@ -14,6 +14,7 @@ pub mod process_cards;
 pub mod advance_stage;
 pub mod settle_game;
 pub mod update_round;
+pub mod reveal_shuffle_random;
 
 use create_table::*;
 use join_table::*;
@@ -23,6 +24,7 @@ use process_cards::*;
 use advance_stage::*;
 use settle_game::*;
 use update_round::*;
+use reveal_shuffle_random::*;
 use crate::state::RoundSummary;
 
 pub mod reveal_hand;
@@ -87,6 +89,13 @@ pub mod solana_poker {
     /// Player reveals their hand (grants decrypt access to themselves)
     pub fn reveal_hand<'info>(ctx: Context<'_, '_, '_, 'info, RevealHand<'info>>) -> Result<()> {
         reveal_hand::handler(ctx)
+    }
+
+    /// Admin allows a player to decrypt the shuffle_random handle
+    pub fn reveal_shuffle_random<'info>(
+        ctx: Context<'_, '_, '_, 'info, RevealShuffleRandom<'info>>,
+    ) -> Result<()> {
+        reveal_shuffle_random::handler(ctx)
     }
 
     /// Apply an aggregated betting round summary (one tx per stage)
