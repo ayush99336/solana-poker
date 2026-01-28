@@ -81,9 +81,10 @@ pub mod solana_poker {
         batch_index: u8,
         card_0: Vec<u8>,
         card_1: Vec<u8>,
+        encrypted_offset: Vec<u8>,
         input_type: u8,
     ) -> Result<()> {
-        process_cards::handler(ctx, batch_index, card_0, card_1, input_type)
+        process_cards::handler(ctx, batch_index, card_0, card_1, encrypted_offset, input_type)
     }
 
     /// Player reveals their hand (grants decrypt access to themselves)

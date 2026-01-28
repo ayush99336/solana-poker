@@ -382,6 +382,10 @@ describe("solana-poker: Round Flow", () => {
     console.log("  community originals:", shuffledDeck.slice(10, 15));
     const encryptedCards: Buffer[] = [];
 
+    const secretOffset = Math.floor(Math.random() * 52);
+    const encryptedOffset = Buffer.from(await encryptValue(BigInt(secretOffset)), "hex");
+    console.log("Encrypted offset generated");
+
     for (let i = 0; i < 15; i++) {
       const hex = await encryptValue(BigInt(shuffledDeck[i]));
       encryptedCards.push(Buffer.from(hex, "hex"));
@@ -394,12 +398,12 @@ describe("solana-poker: Round Flow", () => {
       const idx0 = batch * 2;
       const idx1 = batch * 2 + 1;
       const card0 = encryptedCards[idx0] || encryptedCards[0];
-      const card1 = idx1 < 15 ? encryptedCards[idx1] : encryptedCards[0];
+      const card1 = idx1 < 15 ? encryptedCards[idx1] : Buffer.from(await encryptValue(0n), "hex");
 
       await sendAndConfirm(
         () =>
           program.methods
-            .processCardsBatch(batch, card0, card1, 0)
+            .processCardsBatch(batch, card0, card1, encryptedOffset, 0)
             .accounts({
               table: tablePda,
               game: gamePda,

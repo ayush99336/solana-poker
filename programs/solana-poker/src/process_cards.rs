@@ -22,6 +22,7 @@ pub fn handler<'info>(
     batch_index: u8,
     card_0: Vec<u8>,
     card_1: Vec<u8>,
+    encrypted_offset: Vec<u8>,
     input_type: u8,
 ) -> Result<()> {
     let game = &mut ctx.accounts.game;
@@ -64,6 +65,14 @@ pub fn handler<'info>(
     // So we are rewriting the logic.
 
     let random = game.shuffle_random;
+    let enc_offset: Euint128 = new_euint128(
+        CpiContext::new(
+            cpi_program.clone(),
+            op_accounts.clone(),
+        ),
+        encrypted_offset,
+        input_type,
+    )?;
     let fifty_two: Euint128 = cpi::as_euint128(
         CpiContext::new(
             cpi_program.clone(),
@@ -76,7 +85,7 @@ pub fn handler<'info>(
             cpi_program.clone(),
             op_accounts.clone(),
         ),
-        random,
+        enc_offset,
         fifty_two,
         16,
     )?;
