@@ -6,26 +6,28 @@ pub mod constants;
 pub mod error;
 pub mod state;
 
+pub mod advance_stage;
 pub mod create_table;
 pub mod join_table;
 pub mod leave_table;
-pub mod start_game;
 pub mod process_cards;
-pub mod advance_stage;
-pub mod settle_game;
-pub mod update_round;
+pub mod reveal_card_offset;
 pub mod reveal_shuffle_random;
+pub mod settle_game;
+pub mod start_game;
+pub mod update_round;
 
+use crate::state::RoundSummary;
+use advance_stage::*;
 use create_table::*;
 use join_table::*;
 use leave_table::*;
-use start_game::*;
 use process_cards::*;
-use advance_stage::*;
-use settle_game::*;
-use update_round::*;
+use reveal_card_offset::*;
 use reveal_shuffle_random::*;
-use crate::state::RoundSummary;
+use settle_game::*;
+use start_game::*;
+use update_round::*;
 
 pub mod reveal_hand;
 use reveal_hand::*;
@@ -45,7 +47,14 @@ pub mod solana_poker {
         buy_in_max: u64,
         small_blind: u64,
     ) -> Result<()> {
-        create_table::handler(ctx, table_id, max_players, buy_in_min, buy_in_max, small_blind)
+        create_table::handler(
+            ctx,
+            table_id,
+            max_players,
+            buy_in_min,
+            buy_in_max,
+            small_blind,
+        )
     }
 
     /// Player joins a table with a buy-in
@@ -70,21 +79,20 @@ pub mod solana_poker {
     /// ============================================
     /// NEW: Process cards in mini-batches (2 cards per batch)
     /// ============================================
-    /// 
+    ///
     /// Batch 0: Cards 0-1, generates random + shuffle
     /// Batch 1-6: Cards 2-13
     /// Batch 7: Card 14-15, finalizes
-    /// 
+    ///
     /// Replaces: submit_cards + apply_offset_batch + generate_offset + deal_cards
     pub fn process_cards_batch<'info>(
         ctx: Context<'_, '_, '_, 'info, ProcessCardsBatch<'info>>,
         batch_index: u8,
         card_0: Vec<u8>,
         card_1: Vec<u8>,
-        encrypted_offset: Vec<u8>,
         input_type: u8,
     ) -> Result<()> {
-        process_cards::handler(ctx, batch_index, card_0, card_1, encrypted_offset, input_type)
+        process_cards::handler(ctx, batch_index, card_0, card_1, input_type)
     }
 
     /// Player reveals their hand (grants decrypt access to themselves)
@@ -97,6 +105,14 @@ pub mod solana_poker {
         ctx: Context<'_, '_, '_, 'info, RevealShuffleRandom<'info>>,
     ) -> Result<()> {
         reveal_shuffle_random::handler(ctx)
+    }
+
+    /// Admin allows a player to decrypt the card_offset handle
+    /// Used to verify the bounded offset (0-51) is consistent
+    pub fn reveal_card_offset<'info>(
+        ctx: Context<'_, '_, '_, 'info, RevealCardOffset<'info>>,
+    ) -> Result<()> {
+        reveal_card_offset::handler(ctx)
     }
 
     /// Apply an aggregated betting round summary (one tx per stage)
@@ -119,5 +135,4 @@ pub mod solana_poker {
     pub fn settle_game(ctx: Context<SettleGame>, winner_seat_index: u8) -> Result<()> {
         settle_game::handler(ctx, winner_seat_index)
     }
-
 }

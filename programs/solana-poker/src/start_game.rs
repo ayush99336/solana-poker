@@ -1,8 +1,8 @@
+use crate::constants::MIN_PLAYERS;
+use crate::error::PokerError;
+use crate::state::{GameStage, PokerGame, PokerTable};
 use anchor_lang::prelude::*;
 use inco_lightning::types::Euint128;
-use crate::state::{PokerTable, PokerGame, GameStage};
-use crate::error::PokerError;
-use crate::constants::MIN_PLAYERS;
 
 /// Admin starts a new game at the table
 pub fn handler(ctx: Context<StartGame>, game_id: u64, frontend_account: Pubkey) -> Result<()> {
@@ -15,7 +15,10 @@ pub fn handler(ctx: Context<StartGame>, game_id: u64, frontend_account: Pubkey) 
         PokerError::NotAdmin
     );
     require!(table.current_game.is_none(), PokerError::GameInProgress);
-    require!(table.player_count >= MIN_PLAYERS, PokerError::NotEnoughPlayers);
+    require!(
+        table.player_count >= MIN_PLAYERS,
+        PokerError::NotEnoughPlayers
+    );
 
     // Initialize game state
     game.table = table.key();
@@ -29,7 +32,7 @@ pub fn handler(ctx: Context<StartGame>, game_id: u64, frontend_account: Pubkey) 
     game.players_remaining = table.player_count;
     game.players_acted = 0;
     game.player_count = table.player_count;
-    
+
     // Player status tracking
     game.folded_mask = 0;
     game.all_in_mask = 0;
@@ -38,17 +41,18 @@ pub fn handler(ctx: Context<StartGame>, game_id: u64, frontend_account: Pubkey) 
     game.last_raise_amount = 0;
     game.round_bets = [0; 5];
     game.acted_mask = 0;
-    
+
     // ===== NEW PROCESS CARDS STATE =====
     game.shuffle_random = Euint128::default();
-    game.shuffled_indices = [0, 1, 2, 3, 4];  // Default order, will be shuffled
+    game.card_offset = Euint128::default();
+    game.shuffled_indices = [0, 1, 2, 3, 4]; // Default order, will be shuffled
     game.deal_cards = [Euint128::default(); 10];
     game.community_cards = [Euint128::default(); 5];
     game.cards_processed = false;
     game.frontend_account = frontend_account;
-    
+
     game.community_revealed = 0;
-    
+
     // Result
     game.winner_seat = None;
     game.bump = ctx.bumps.game;

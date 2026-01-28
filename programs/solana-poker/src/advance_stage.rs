@@ -1,25 +1,22 @@
+use crate::error::PokerError;
+use crate::state::{GameStage, PokerGame, PokerTable};
 use anchor_lang::prelude::*;
 use inco_lightning::cpi::accounts::Allow;
 use inco_lightning::cpi::allow;
 use inco_lightning::program::IncoLightning;
-use crate::state::{PokerTable, PokerGame, GameStage};
-use crate::error::PokerError;
 
 /// Advance game to next stage (PreFlop -> Flop -> Turn -> River -> Showdown)
 /// Called by admin after betting round completes
-/// 
+///
 /// Pass accounts via remaining_accounts:
 /// - First N accounts: allowance accounts for newly revealed community cards
 /// - Remaining accounts: PlayerSeat accounts for this game (to reset their bets)
-pub fn handler<'info>(
-    ctx: Context<'_, '_, '_, 'info, AdvanceStage<'info>>,
-) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, AdvanceStage<'info>>) -> Result<()> {
     let game = &mut ctx.accounts.game;
 
     // Validate stage
     require!(
-        game.stage != GameStage::Waiting && 
-        game.stage != GameStage::Finished,
+        game.stage != GameStage::Waiting && game.stage != GameStage::Finished,
         PokerError::InvalidGameStage
     );
 
@@ -34,8 +31,14 @@ pub fn handler<'info>(
     let next_stage = game.stage.next().ok_or(PokerError::InvalidGameStage)?;
 
     // ===== GRANT FRONTEND DECRYPT ACCESS FOR NEW COMMUNITY CARDS =====
-    require!(game.frontend_account != Pubkey::default(), PokerError::FrontendAccountNotSet);
-    require!(ctx.accounts.frontend.key() == game.frontend_account, PokerError::FrontendAccountNotSet);
+    require!(
+        game.frontend_account != Pubkey::default(),
+        PokerError::FrontendAccountNotSet
+    );
+    require!(
+        ctx.accounts.frontend.key() == game.frontend_account,
+        PokerError::FrontendAccountNotSet
+    );
 
     let (reveal_indices, allowance_count): (Vec<usize>, usize) = match next_stage {
         GameStage::Flop => (vec![0, 1, 2], 3),
@@ -45,7 +48,10 @@ pub fn handler<'info>(
     };
 
     if allowance_count > 0 {
-        require!(ctx.remaining_accounts.len() >= allowance_count, PokerError::MissingAllowanceAccounts);
+        require!(
+            ctx.remaining_accounts.len() >= allowance_count,
+            PokerError::MissingAllowanceAccounts
+        );
 
         let cpi_program = ctx.accounts.inco_lightning_program.to_account_info();
         let authority = ctx.accounts.admin.to_account_info();
@@ -91,12 +97,12 @@ pub fn handler<'info>(
     game.last_raise_amount = 0;
     game.round_bets = [0; 5];
     game.acted_mask = 0;
-    
+
     // Action starts with first active player after dealer
     let sb_position = (game.dealer_position + 1) % game.player_count;
     let mut action_pos = sb_position;
     let mut checked = 0;
-    
+
     while checked < game.player_count {
         if game.is_active(action_pos) {
             break;
@@ -104,11 +110,15 @@ pub fn handler<'info>(
         action_pos = (action_pos + 1) % game.player_count;
         checked += 1;
     }
-    
+
     game.action_on = action_pos;
     game.stage = next_stage;
 
-    msg!("Game advanced to {:?}, action on seat {}", next_stage, action_pos);
+    msg!(
+        "Game advanced to {:?}, action on seat {}",
+        next_stage,
+        action_pos
+    );
     Ok(())
 }
 
@@ -134,3 +144,14 @@ pub struct AdvanceStage<'info> {
 
     pub system_program: Program<'info, System>,
 }
+
+//join room
+//backend needs erand
+// start game
+// shuffled and dealt
+
+//do blind bets before shuffle and deal
+// 8 *2 =16
+//1st thing save the state once the 8th transaction goes in pokergame pda , pokergame.cardProcessing= true
+// either check for the confirmation of last (8th) transactionid if block state = confirmed
+//
