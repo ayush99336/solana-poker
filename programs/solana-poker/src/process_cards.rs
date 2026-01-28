@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use inco_lightning::cpi::accounts::Operation;
-use inco_lightning::cpi::{e_rand, e_add, new_euint128};
+use inco_lightning::cpi::{self, e_add, e_rand, e_rem, new_euint128};
 use inco_lightning::program::IncoLightning;
 use inco_lightning::types::Euint128;
 use crate::state::{PokerTable, PokerGame, GameStage};
@@ -64,6 +64,22 @@ pub fn handler<'info>(
     // So we are rewriting the logic.
 
     let random = game.shuffle_random;
+    let fifty_two: Euint128 = cpi::as_euint128(
+        CpiContext::new(
+            cpi_program.clone(),
+            op_accounts.clone(),
+        ),
+        52u128,
+    )?;
+    let bounded_offset: Euint128 = e_rem(
+        CpiContext::new(
+            cpi_program.clone(),
+            op_accounts.clone(),
+        ),
+        random,
+        fifty_two,
+        16,
+    )?;
     let cards = [card_0, card_1];
     let base_idx = (batch_index as usize) * 2;
 
@@ -93,7 +109,7 @@ pub fn handler<'info>(
                 op_accounts.clone(),
             ),
             enc_bck_crd,
-            random,
+            bounded_offset,
             16,
         )?;
         
