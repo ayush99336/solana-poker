@@ -47,6 +47,9 @@ pub enum PokerError {
     #[msg("Cards not processed yet")]
     CardsNotSubmitted,
 
+    #[msg("Cards not processed - all 8 batches must complete")]
+    CardsNotProcessed,
+
     #[msg("Invalid card count")]
     InvalidCardCount,
 
@@ -71,7 +74,6 @@ pub enum PokerError {
     #[msg("Winner not determined")]
     WinnerNotDetermined,
 
-
     #[msg("Invalid seat index")]
     InvalidSeatIndex,
 
@@ -80,7 +82,6 @@ pub enum PokerError {
 
     #[msg("Invalid batch index (must be 0, 1, or 2)")]
     InvalidBatchIndex,
-
 
     #[msg("Cards already processed")]
     CardsAlreadyProcessed,

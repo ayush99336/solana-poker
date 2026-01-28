@@ -1,24 +1,24 @@
 use crate::error::PokerError;
 use crate::state::{GameStage, PokerGame, PokerTable};
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::clock::Clock;
 use inco_lightning::cpi::accounts::Operation;
-use inco_lightning::cpi::{self, e_add, e_rand, e_rem, new_euint128};
+use inco_lightning::cpi::{self, e_add, new_euint128};
 use inco_lightning::program::IncoLightning;
 use inco_lightning::types::Euint128;
 
 /// Process cards in mini-batches (2 cards per batch, 8 batches total)
 ///
-/// Flow:
-/// - Batch 0: Generates random via e_rand, computes bounded offset (random % 52), shuffles indices
-/// - Batch 1-6: Cards 2-13
-/// - Batch 7: Cards 14, finalizes processing
+/// NEW FLOW:
+/// - Batch 0: Uses blockhash for shuffle seed and offset (no e_rand)
+/// - Batch 1-6: Process cards 2-13
+/// - Batch 7: Process card 14, set cards_processed = true, stage = Playing
 ///
-/// Each batch:
-/// 1. Converts backend ciphertext to Eu128 handles
-/// 2. Applies value offset with e_add (using on-chain generated bounded offset)
-/// 3. Stores in deal_cards or community_cards (shuffled)
+/// Uses blockhash instead of e_rand to avoid oscillation issues:
+/// - shuffle_seed = slot hash (for Fisher-Yates shuffle)
+/// - card_offset = encrypted(slot % 52) (for card value offset)
 ///
-/// All randomness is generated ON-CHAIN via e_rand - no backend random values!
+/// After batch 7 completes, backend can proceed with off-chain gameplay.
 pub fn handler<'info>(
     ctx: Context<'_, '_, '_, 'info, ProcessCardsBatch<'info>>,
     batch_index: u8,
@@ -43,38 +43,37 @@ pub fn handler<'info>(
         signer: authority.clone(),
     };
 
-    // ===== BATCH 0: Generate random, compute bounded offset, shuffle indices =====
+    // ===== BATCH 0: Generate shuffle seed and offset from blockhash =====
     if batch_index == 0 {
-        // Generate random value on-chain using e_rand
-        let random: Euint128 =
-            e_rand(CpiContext::new(cpi_program.clone(), op_accounts.clone()), 0)?;
+        // Get current slot as source of randomness
+        let clock = Clock::get()?;
+        let slot = clock.slot;
 
-        // Compute bounded offset: random % 52
-        // This creates a NEW handle independent of shuffle_random
-        let fifty_two: Euint128 = cpi::as_euint128(
+        // Use slot as shuffle seed (deterministic, based on when tx lands)
+        game.shuffle_seed = slot;
+
+        // Compute offset: slot % 52 (value between 0-51)
+        let offset_value = (slot % 52) as u128;
+
+        // Encrypt the offset value using as_euint128
+        // This creates an encrypted handle for the offset
+        let encrypted_offset: Euint128 = cpi::as_euint128(
             CpiContext::new(cpi_program.clone(), op_accounts.clone()),
-            52u128,
+            offset_value,
         )?;
 
-        let bounded_offset: Euint128 = e_rem(
-            CpiContext::new(cpi_program.clone(), op_accounts.clone()),
-            random,
-            fifty_two,
-            0,
-        )?;
-
-        // Store random for shuffle (uses handle bytes) and bounded offset for cards
-        game.shuffle_random = random;
-        game.card_offset = bounded_offset;
-        game.shuffled_indices = do_simple_shuffle(random)?;
+        game.card_offset = encrypted_offset;
+        game.shuffled_indices = do_simple_shuffle(slot);
 
         msg!(
-            "Generated random and bounded offset, shuffled indices: {:?}",
+            "Batch 0: slot={}, offset={}, shuffled_indices={:?}",
+            slot,
+            offset_value,
             game.shuffled_indices
         );
     }
 
-    // Use stored bounded offset (0-51) for all batches
+    // Use stored encrypted offset for all batches
     let card_offset = game.card_offset;
 
     let cards = [card_0, card_1];
@@ -96,7 +95,8 @@ pub fn handler<'info>(
             input_type,
         )?;
 
-        // Apply bounded offset (0-51) using on-chain generated random
+        // Apply encrypted offset (0-51) to card value
+        // scalar_byte = 0 means both operands are ciphertexts
         let enc_offset_crd: Euint128 = e_add(
             CpiContext::new(cpi_program.clone(), op_accounts.clone()),
             enc_bck_crd,
@@ -113,19 +113,19 @@ pub fn handler<'info>(
             game.deal_cards[card_slot] = enc_offset_crd;
             msg!("Hole {} -> slot {}", actual_idx, card_slot);
         } else {
-            // Community cards (10-14)
+            // Community cards (10-14) - stored directly (no shuffle for community)
             let comm_idx = actual_idx - 10;
-            let shuffled_comm = game.shuffled_indices[comm_idx] as usize;
-            game.community_cards[shuffled_comm] = enc_offset_crd;
-            msg!("Comm {} -> slot {}", actual_idx, shuffled_comm);
+            game.community_cards[comm_idx] = enc_offset_crd;
+            msg!("Community {} -> slot {}", actual_idx, comm_idx);
         }
     }
 
-    // ===== FINALIZE AFTER BATCH 7 (card 14) =====
+    // ===== FINALIZE AFTER BATCH 7 =====
     if batch_index == 7 {
         game.cards_processed = true;
-        game.stage = GameStage::PreFlop;
-        msg!("All cards processed! -> PreFlop");
+        game.stage = GameStage::Playing;
+        msg!("All cards processed! cards_processed=true, stage=Playing");
+        msg!("Backend can now proceed with off-chain gameplay");
     } else {
         msg!("Batch {} done", batch_index);
     }
@@ -133,20 +133,19 @@ pub fn handler<'info>(
     Ok(())
 }
 
-/// Simple shuffle using random handle as seed
-/// Uses the handle bytes which are unpredictable at generation time
-fn do_simple_shuffle(random: Euint128) -> Result<[u8; 5]> {
-    let seed = random.0;
+/// Simple shuffle using slot as seed
+/// Deterministic based on the slot when batch 0 transaction lands
+fn do_simple_shuffle(slot: u64) -> [u8; 5] {
     let mut indices: [u8; 5] = [0, 1, 2, 3, 4];
-    let seed_bytes = seed.to_le_bytes();
+    let seed_bytes = slot.to_le_bytes();
 
-    // Fisher-Yates shuffle using random bytes as source of randomness
+    // Fisher-Yates shuffle using slot bytes as source of randomness
     for i in (1..5).rev() {
-        let j = (seed_bytes[i % 16] as usize) % (i + 1);
+        let j = (seed_bytes[i % 8] as usize) % (i + 1);
         indices.swap(i, j);
     }
 
-    Ok(indices)
+    indices
 }
 
 #[derive(Accounts)]

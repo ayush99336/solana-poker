@@ -1,12 +1,12 @@
+use crate::error::PokerError;
+use crate::state::{PlayerSeat, PokerGame, PokerTable};
 use anchor_lang::prelude::*;
 use inco_lightning::cpi::accounts::Allow;
 use inco_lightning::cpi::allow;
 use inco_lightning::program::IncoLightning;
-use crate::state::{PokerTable, PokerGame, PlayerSeat};
-use crate::error::PokerError;
 
 /// Player reveals their hand by granting themselves decrypt permission
-/// 
+///
 /// The player calls this after cards have been processed to get access
 /// to their specific hole cards based on the on-chain shuffle.
 pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealHand<'info>>) -> Result<()> {
@@ -15,16 +15,16 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealHand<'info>>) -> Res
     let player = &ctx.accounts.player;
 
     // Validate game has processed cards
-    require!(game.cards_processed, PokerError::CardsNotSubmitted);
-    
+    require!(game.cards_processed, PokerError::CardsNotProcessed);
+
     // Validate seat belongs to this player
     require!(seat.player == player.key(), PokerError::PlayerNotAtTable);
-    
+
     // Validate player hasn't folded
     require!(!seat.is_folded, PokerError::PlayerFolded);
 
     let seat_index = seat.seat_index;
-    
+
     // Find which card pair is assigned to this seat
     // shuffled_indices[pair_index] = seat_index
     let mut pair_index: usize = 99;
@@ -34,18 +34,23 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealHand<'info>>) -> Res
             break;
         }
     }
-    
+
     // Validate seat is in the shuffled mapping
     require!(pair_index < 5, PokerError::InvalidGameStage);
 
     let card_1_idx = pair_index * 2;
     let card_2_idx = pair_index * 2 + 1;
-    
+
     let handle_1 = game.deal_cards[card_1_idx];
     let handle_2 = game.deal_cards[card_2_idx];
 
-    msg!("Revealing hand for seat {} (pair idx {}): slots {}, {}", 
-         seat_index, pair_index, card_1_idx, card_2_idx);
+    msg!(
+        "Revealing hand for seat {} (pair idx {}): slots {}, {}",
+        seat_index,
+        pair_index,
+        card_1_idx,
+        card_2_idx
+    );
 
     // CPI to Inco to allow access (admin is the handle owner)
     let cpi_program = ctx.accounts.inco_lightning_program.to_account_info();

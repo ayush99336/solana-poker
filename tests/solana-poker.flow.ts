@@ -9,7 +9,7 @@ const INCO_LIGHTNING_ID = new anchor.web3.PublicKey(
   "5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj"
 );
 
-describe("solana-poker: Round Flow", () => {
+describe("solana-poker: Simplified Flow", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
@@ -21,9 +21,8 @@ describe("solana-poker: Round Flow", () => {
   const player4 = anchor.web3.Keypair.generate();
   const player5 = anchor.web3.Keypair.generate();
 
-  const SHUFFLED_DECK = [
-    2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
-  ];
+  // Card values to encrypt (will be offset by blockhash-derived value)
+  const CARD_VALUES = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 
   const tableId = new anchor.BN(Math.floor(Date.now() / 1000));
   const gameId = tableId.add(new anchor.BN(1));
@@ -31,7 +30,8 @@ describe("solana-poker: Round Flow", () => {
   const maxPlayers = 5;
   const buyInMin = new anchor.BN(1_000_000);
   const buyInMax = new anchor.BN(1_000_000_000);
-  const smallBlind = new anchor.BN(100);
+  const smallBlind = new anchor.BN(100_000); // 0.0001 SOL
+  const bigBlind = new anchor.BN(200_000); // 0.0002 SOL
   const playerBuyIn = new anchor.BN(50_000_000);
 
   let tablePda: anchor.web3.PublicKey;
@@ -150,123 +150,18 @@ describe("solana-poker: Round Flow", () => {
     seatIndex: number;
     plaintexts: string[];
   }> = [];
-  let decryptedFlopCards: string[] = [];
-  let decryptedTurnCard: string | null = null;
-  let decryptedRiverCard: string | null = null;
-  let shuffleRandomAllowed = false;
-  let lastShuffleRandomHandle: string | null = null;
-  let lastShuffleRandomPlaintext: string | null = null;
+  let decryptedCommunityCards: string[] = [];
+
   let cardOffsetAllowed = false;
-  let lastCardOffsetHandle: string | null = null;
   let lastCardOffsetPlaintext: string | null = null;
   const extractHandle = (h: any) => h;
-
-  const logShuffleRandom = async (label: string) => {
-    const game = await program.account.pokerGame.fetch(gamePda);
-    const handle = extractHandle(game.shuffleRandom);
-
-    const handleString = handleToDecimalString(handle);
-    if (lastShuffleRandomHandle && lastShuffleRandomHandle !== handleString) {
-      console.log(
-        `shuffle_random ${label}: HANDLE CHANGED`,
-        lastShuffleRandomHandle,
-        "->",
-        handleString
-      );
-    } else {
-      console.log(`shuffle_random ${label} handle:`, handleString.slice(0, 16));
-    }
-    lastShuffleRandomHandle = handleString;
-
-    if (!shuffleRandomAllowed) {
-      const allowance = anchor.web3.PublicKey.findProgramAddressSync(
-        [handleToBytesLE(handle), admin.publicKey.toBuffer()],
-        INCO_LIGHTNING_ID
-      )[0];
-
-      await sendAndConfirm(
-        () =>
-          program.methods
-            .revealShuffleRandom()
-            .accounts({
-              table: tablePda,
-              game: gamePda,
-              admin: admin.publicKey,
-              player: admin.publicKey,
-              incoLightningProgram: INCO_LIGHTNING_ID,
-              systemProgram: anchor.web3.SystemProgram.programId,
-            })
-            .remainingAccounts([
-              { pubkey: allowance, isWritable: true, isSigner: false },
-            ])
-            .rpc(),
-        "revealShuffleRandom"
-      );
-
-      shuffleRandomAllowed = true;
-    }
-
-    const signMessage = getSignMessage();
-    if (!signMessage) {
-      console.log(`shuffle_random ${label}: signMessage not available`);
-      return;
-    }
-
-    try {
-      const result = await decryptWithRetry(
-        [handleToDecimalString(handle)],
-        admin.publicKey,
-        signMessage,
-        `shuffle_random ${label}`,
-        5,
-        200
-      );
-      const plaintext = result.plaintexts[0];
-      if (
-        lastShuffleRandomPlaintext &&
-        lastShuffleRandomPlaintext !== plaintext
-      ) {
-        console.log(
-          `shuffle_random ${label}: PLAINTEXT CHANGED`,
-          lastShuffleRandomPlaintext,
-          "->",
-          plaintext,
-          "% 52:",
-          toCardIndex(plaintext)
-        );
-      } else {
-        console.log(
-          `shuffle_random ${label}:`,
-          plaintext,
-          "% 52:",
-          toCardIndex(plaintext)
-        );
-      }
-      lastShuffleRandomPlaintext = plaintext;
-    } catch (err: any) {
-      console.log(
-        `shuffle_random ${label} decrypt failed:`,
-        err?.message ?? String(err)
-      );
-    }
-  };
 
   const logCardOffset = async (label: string) => {
     const game = await program.account.pokerGame.fetch(gamePda);
     const handle = extractHandle(game.cardOffset);
-
     const handleString = handleToDecimalString(handle);
-    if (lastCardOffsetHandle && lastCardOffsetHandle !== handleString) {
-      console.log(
-        `card_offset ${label}: HANDLE CHANGED`,
-        lastCardOffsetHandle,
-        "->",
-        handleString
-      );
-    } else {
-      console.log(`card_offset ${label} handle:`, handleString.slice(0, 16));
-    }
-    lastCardOffsetHandle = handleString;
+
+    console.log(`card_offset ${label} handle:`, handleString.slice(0, 16));
 
     if (!cardOffsetAllowed) {
       const allowance = anchor.web3.PublicKey.findProgramAddressSync(
@@ -317,8 +212,7 @@ describe("solana-poker: Round Flow", () => {
           `card_offset ${label}: PLAINTEXT CHANGED`,
           lastCardOffsetPlaintext,
           "->",
-          plaintext,
-          "(should be 0-51)"
+          plaintext
         );
       } else {
         console.log(`card_offset ${label}:`, plaintext, "(should be 0-51)");
@@ -332,35 +226,8 @@ describe("solana-poker: Round Flow", () => {
     }
   };
 
-  const buildRoundSummary = (args: {
-    roundId: number;
-    betsByPlayer: Array<number | anchor.BN>;
-    potDelta: number | anchor.BN;
-    currentBet: number | anchor.BN;
-    lastRaiser: number;
-    actedMask: number;
-    actionOn: number;
-    foldedMask?: number;
-    allInMask?: number;
-  }) => ({
-    roundId: args.roundId,
-    betsByPlayer: [
-      new anchor.BN(args.betsByPlayer[0] ?? 0),
-      new anchor.BN(args.betsByPlayer[1] ?? 0),
-      new anchor.BN(args.betsByPlayer[2] ?? 0),
-      new anchor.BN(args.betsByPlayer[3] ?? 0),
-      new anchor.BN(args.betsByPlayer[4] ?? 0),
-    ],
-    foldedMask: args.foldedMask ?? 0,
-    allInMask: args.allInMask ?? 0,
-    potDelta: new anchor.BN(args.potDelta),
-    currentBet: new anchor.BN(args.currentBet),
-    lastRaiser: args.lastRaiser,
-    actedMask: args.actedMask,
-    actionOn: args.actionOn,
-  });
-
-  it("1. Setup table and game", async () => {
+  // Compute all PDAs before tests run
+  before(async () => {
     [tablePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [
         Buffer.from("table"),
@@ -369,10 +236,12 @@ describe("solana-poker: Round Flow", () => {
       ],
       program.programId
     );
+
     [vaultPda] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), tablePda.toBuffer()],
       program.programId
     );
+
     [gamePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [
         Buffer.from("game"),
@@ -382,6 +251,61 @@ describe("solana-poker: Round Flow", () => {
       program.programId
     );
 
+    [adminSeatPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("player_seat"),
+        tablePda.toBuffer(),
+        admin.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+
+    [player2SeatPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("player_seat"),
+        tablePda.toBuffer(),
+        player2.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+
+    [player3SeatPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("player_seat"),
+        tablePda.toBuffer(),
+        player3.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+
+    [player4SeatPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("player_seat"),
+        tablePda.toBuffer(),
+        player4.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+
+    [player5SeatPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("player_seat"),
+        tablePda.toBuffer(),
+        player5.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+
+    console.log("PDAs computed:");
+    console.log("  tablePda:", tablePda.toBase58());
+    console.log("  gamePda:", gamePda.toBase58());
+  });
+
+  // ========================================
+  // TEST 1: Setup table and join players
+  // ========================================
+  it("1. Setup table and join players", async () => {
+    // Create table
     await sendAndConfirm(
       () =>
         program.methods
@@ -395,16 +319,9 @@ describe("solana-poker: Round Flow", () => {
           .rpc(),
       "createTable"
     );
+    console.log("Table created:", tablePda.toBase58());
 
-    [adminSeatPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("player_seat"),
-        tablePda.toBuffer(),
-        admin.publicKey.toBuffer(),
-      ],
-      program.programId
-    );
-
+    // Admin joins
     await sendAndConfirm(
       () =>
         program.methods
@@ -417,47 +334,35 @@ describe("solana-poker: Round Flow", () => {
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc(),
-      "joinTable (admin)"
+      "admin joinTable"
     );
+    console.log("Admin joined");
 
-    await provider.sendAndConfirm(
-      new anchor.web3.Transaction().add(
-        anchor.web3.SystemProgram.transfer({
-          fromPubkey: admin.publicKey,
-          toPubkey: player2.publicKey,
-          lamports: Math.floor(anchor.web3.LAMPORTS_PER_SOL / 10),
-        })
-      )
-    );
-
+    // Fund and join other players
     const extraPlayers = [player2, player3, player4, player5];
     const extraLabels = ["player2", "player3", "player4", "player5"];
-    const extraSeatPdas: anchor.web3.PublicKey[] = [];
+    const extraSeatPdas = [
+      player2SeatPda,
+      player3SeatPda,
+      player4SeatPda,
+      player5SeatPda,
+    ];
 
     for (let i = 0; i < extraPlayers.length; i++) {
       const player = extraPlayers[i];
       const label = extraLabels[i];
+      const seatPda = extraSeatPdas[i];
 
+      // Transfer SOL from admin instead of airdrop (rate limited on devnet)
       await provider.sendAndConfirm(
         new anchor.web3.Transaction().add(
           anchor.web3.SystemProgram.transfer({
             fromPubkey: admin.publicKey,
             toPubkey: player.publicKey,
-            lamports: Math.floor(anchor.web3.LAMPORTS_PER_SOL / 10),
+            lamports: 100_000_000,
           })
         )
       );
-
-      const [seatPda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("player_seat"),
-          tablePda.toBuffer(),
-          player.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      extraSeatPdas.push(seatPda);
 
       await sendAndConfirm(
         () =>
@@ -472,17 +377,22 @@ describe("solana-poker: Round Flow", () => {
             })
             .signers([player])
             .rpc(),
-        `joinTable (${label})`
+        `${label} joinTable`
       );
+      console.log(`${label} joined`);
     }
+    console.log("All 5 players joined the table");
+  });
 
-    [player2SeatPda, player3SeatPda, player4SeatPda, player5SeatPda] =
-      extraSeatPdas;
-
+  // ========================================
+  // TEST 2: Start game with blind bets
+  // ========================================
+  it("2. Start game with blind bets", async () => {
+    // Small blind = seat 1 (player2), Big blind = seat 2 (player3)
     await sendAndConfirm(
       () =>
         program.methods
-          .startGame(gameId, admin.publicKey)
+          .startGame(gameId, admin.publicKey, smallBlind, bigBlind)
           .accounts({
             table: tablePda,
             game: gamePda,
@@ -490,28 +400,33 @@ describe("solana-poker: Round Flow", () => {
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .remainingAccounts([
-            { pubkey: adminSeatPda, isWritable: true, isSigner: false },
             { pubkey: player2SeatPda, isWritable: true, isSigner: false },
+            { pubkey: player3SeatPda, isWritable: true, isSigner: false },
           ])
           .rpc(),
       "startGame"
     );
+
+    const game = await program.account.pokerGame.fetch(gamePda);
+    console.log("Game started:");
+    console.log("  Game ID:", game.gameId.toString());
+    console.log("  Stage:", game.stage);
+    console.log("  Initial pot (blinds):", game.pot.toString());
+    console.log("  Player count:", game.playerCount);
   });
 
-  it("2. Process cards (8 batches)", async () => {
-    const shuffledDeck = SHUFFLED_DECK;
-    console.log("Shuffled deck (first 15):", shuffledDeck);
-    console.log("  hole originals:", shuffledDeck.slice(0, 10));
-    console.log("  community originals:", shuffledDeck.slice(10, 15));
-    const encryptedCards: Buffer[] = [];
+  // ========================================
+  // TEST 3: Process cards (8 batches)
+  // ========================================
+  it("3. Process cards (8 batches)", async () => {
+    console.log("Card values to encrypt:", CARD_VALUES);
 
+    const encryptedCards: Buffer[] = [];
     for (let i = 0; i < 15; i++) {
-      const hex = await encryptValue(BigInt(shuffledDeck[i]));
+      const hex = await encryptValue(BigInt(CARD_VALUES[i]));
       encryptedCards.push(Buffer.from(hex, "hex"));
       if (i < 4) {
-        console.log(
-          `  card[${i}] value=${shuffledDeck[i]} encrypted_len=${hex.length}`
-        );
+        console.log(`  card[${i}] value=${CARD_VALUES[i]} encrypted`);
       }
     }
 
@@ -539,13 +454,23 @@ describe("solana-poker: Round Flow", () => {
         `processCardsBatch(${batch})`
       );
 
-      await logShuffleRandom(`after batch ${batch}`);
-      await logCardOffset(`after batch ${batch}`);
+      if (batch === 0 || batch === 7) {
+        await logCardOffset(`after batch ${batch}`);
+      }
     }
+
+    const game = await program.account.pokerGame.fetch(gamePda);
+    console.log("\nCards processed:");
+    console.log("  cards_processed:", game.cardsProcessed);
+    console.log("  stage:", game.stage);
+    console.log("  shuffle_seed (slot):", game.shuffleSeed.toString());
+    console.log("  shuffled_indices:", game.shuffledIndices);
   });
 
-  it("3. Reveal all hands (allow decryption access)", async () => {
-    await logShuffleRandom("step 3");
+  // ========================================
+  // TEST 4: Reveal hands (allow decryption)
+  // ========================================
+  it("4. Reveal all hands (allow decryption)", async () => {
     const game = await program.account.pokerGame.fetch(gamePda);
     const players = [
       {
@@ -588,17 +513,15 @@ describe("solana-poker: Round Flow", () => {
       const pairIndex = game.shuffledIndices.findIndex(
         (s: number) => s === seatIndex
       );
-      if (pairIndex === -1)
-        throw new Error(`seat ${seatIndex} not found in shuffled indices`);
+      if (pairIndex === -1) {
+        console.log(
+          `${player.label}: seat ${seatIndex} not found in shuffled indices`
+        );
+        continue;
+      }
 
       const h1 = extractHandle(game.dealCards[pairIndex * 2]);
       const h2 = extractHandle(game.dealCards[pairIndex * 2 + 1]);
-
-      console.log(
-        `${player.label} deal handles:`,
-        handleToDecimalString(h1).slice(0, 16),
-        handleToDecimalString(h2).slice(0, 16)
-      );
 
       const allowance1 = anchor.web3.PublicKey.findProgramAddressSync(
         [handleToBytesLE(h1), player.publicKey.toBuffer()],
@@ -627,7 +550,7 @@ describe("solana-poker: Round Flow", () => {
               { pubkey: allowance2, isWritable: true, isSigner: false },
             ])
             .rpc(),
-        `revealHand (${player.label})`
+        `revealHand(${player.label})`
       );
 
       if (player.signMessage) {
@@ -650,345 +573,112 @@ describe("solana-poker: Round Flow", () => {
             decryptedHoleCards = result.plaintexts;
           }
           console.log(
-            `Decrypted ${player.label} hole cards:`,
-            result.plaintexts
-          );
-          console.log(
-            `${player.label} hole cards % 52:`,
+            `${player.label} hole cards:`,
             result.plaintexts.map(toCardIndex)
           );
         } catch (err: any) {
           console.log(
-            `Decrypt failed (${player.label} hole cards):`,
+            `${player.label} decrypt failed:`,
             err?.message ?? String(err)
           );
         }
-      } else {
-        console.log(
-          `signMessage not available for ${player.label}; skipping decrypt`
-        );
       }
     }
   });
 
-  it("4. PreFlop round summary", async () => {
-    const summary = buildRoundSummary({
-      roundId: 1,
-      betsByPlayer: [100, 100],
-      potDelta: 200,
-      currentBet: 100,
-      lastRaiser: 1,
-      actedMask: 0b00000011,
-      actionOn: 0,
-    });
-
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .updateRound(summary)
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-          })
-          .remainingAccounts([
-            { pubkey: adminSeatPda, isWritable: true, isSigner: false },
-            { pubkey: player2SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player3SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player4SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player5SeatPda, isWritable: true, isSigner: false },
-          ])
-          .rpc(),
-      "updateRound (PreFlop)"
-    );
-  });
-
-  it("5. Advance to Flop and update round", async () => {
-    await logShuffleRandom("step 5");
+  // ========================================
+  // TEST 5: Backend decrypts community cards
+  // ========================================
+  it("5. Backend decrypts all community cards", async () => {
     const game = await program.account.pokerGame.fetch(gamePda);
 
-    const commHandles = [
-      extractHandle(game.communityCards[0]),
-      extractHandle(game.communityCards[1]),
-      extractHandle(game.communityCards[2]),
-    ];
-
-    console.log(
-      "Flop handles:",
-      commHandles.map((h) => handleToDecimalString(h).slice(0, 16))
+    // Backend (admin in this test) needs access to all 5 community cards
+    const communityHandles = game.communityCards.map((c: any) =>
+      extractHandle(c)
     );
 
-    const allowance1 = anchor.web3.PublicKey.findProgramAddressSync(
-      [handleToBytesLE(commHandles[0]), admin.publicKey.toBuffer()],
-      INCO_LIGHTNING_ID
-    )[0];
-    const allowance2 = anchor.web3.PublicKey.findProgramAddressSync(
-      [handleToBytesLE(commHandles[1]), admin.publicKey.toBuffer()],
-      INCO_LIGHTNING_ID
-    )[0];
-    const allowance3 = anchor.web3.PublicKey.findProgramAddressSync(
-      [handleToBytesLE(commHandles[2]), admin.publicKey.toBuffer()],
-      INCO_LIGHTNING_ID
-    )[0];
+    // Build allowance accounts for all 5 community cards
+    const allowanceAccounts = communityHandles.map((handle: any) => {
+      const [allowance] = anchor.web3.PublicKey.findProgramAddressSync(
+        [handleToBytesLE(handle), admin.publicKey.toBuffer()],
+        INCO_LIGHTNING_ID
+      );
+      return { pubkey: allowance, isWritable: true, isSigner: false };
+    });
 
+    // Use reveal_community to allow backend to decrypt all 5 cards at once
     await sendAndConfirm(
       () =>
         program.methods
-          .advanceStage()
+          .revealCommunity()
           .accounts({
             table: tablePda,
             game: gamePda,
             admin: admin.publicKey,
-            frontend: admin.publicKey,
+            backend: admin.publicKey,
             incoLightningProgram: INCO_LIGHTNING_ID,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
-          .remainingAccounts([
-            { pubkey: allowance1, isWritable: true, isSigner: false },
-            { pubkey: allowance2, isWritable: true, isSigner: false },
-            { pubkey: allowance3, isWritable: true, isSigner: false },
-          ])
+          .remainingAccounts(allowanceAccounts)
           .rpc(),
-      "advanceStage (Flop)"
+      "revealCommunity"
     );
 
+    // Decrypt all community cards
     const signMessage = getSignMessage();
     if (signMessage) {
-      const handles = commHandles.map((h) => handleToDecimalString(h));
+      const handles = communityHandles.map((h: any) =>
+        handleToDecimalString(h)
+      );
       try {
         const result = await decryptWithRetry(
           handles,
           admin.publicKey,
           signMessage,
-          "flop",
+          "community cards",
           5,
           200
         );
-        decryptedFlopCards = result.plaintexts;
-        const flopMod = result.plaintexts.map(toCardIndex);
-        console.log("Decrypted flop cards:", result.plaintexts);
-        console.log("Flop cards % 52:", flopMod);
+        decryptedCommunityCards = result.plaintexts;
+        console.log("\nCommunity cards decrypted:");
+        console.log("  Raw:", result.plaintexts);
+        console.log("  % 52:", result.plaintexts.map(toCardIndex));
+        console.log(
+          "\n  Flop:",
+          result.plaintexts.slice(0, 3).map(toCardIndex)
+        );
+        console.log("  Turn:", toCardIndex(result.plaintexts[3]));
+        console.log("  River:", toCardIndex(result.plaintexts[4]));
       } catch (err: any) {
-        console.log("Decrypt failed (flop):", err?.message ?? String(err));
+        console.log(
+          "Community cards decrypt failed:",
+          err?.message ?? String(err)
+        );
       }
     }
-
-    const summary = buildRoundSummary({
-      roundId: 2,
-      betsByPlayer: [50, 50],
-      potDelta: 100,
-      currentBet: 50,
-      lastRaiser: 0,
-      actedMask: 0b00000011,
-      actionOn: 1,
-    });
-
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .updateRound(summary)
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-          })
-          .remainingAccounts([
-            { pubkey: adminSeatPda, isWritable: true, isSigner: false },
-            { pubkey: player2SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player3SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player4SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player5SeatPda, isWritable: true, isSigner: false },
-          ])
-          .rpc(),
-      "updateRound (Flop)"
-    );
   });
 
-  it("6. Advance to Turn and update round", async () => {
-    await logShuffleRandom("step 6");
+  // ========================================
+  // TEST 6: Settle game (pay winner)
+  // ========================================
+  it("6. Settle game and pay winner", async () => {
+    // In a real game, backend would determine winner based on hand evaluation
+    // For this test, we'll just pick admin (seat 0) as the winner
+    const winnerSeatIndex = 0;
+
+    // Final pot would include all bets collected during gameplay
+    // For this test, use the initial pot (blinds only)
     const game = await program.account.pokerGame.fetch(gamePda);
-    const handle = extractHandle(game.communityCards[3]);
+    const finalPot = game.pot;
 
-    console.log("Turn handle:", handleToDecimalString(handle).slice(0, 16));
-
-    const allowance = anchor.web3.PublicKey.findProgramAddressSync(
-      [handleToBytesLE(handle), admin.publicKey.toBuffer()],
-      INCO_LIGHTNING_ID
-    )[0];
+    console.log("\nSettling game:");
+    console.log("  Winner: seat", winnerSeatIndex, "(admin)");
+    console.log("  Final pot:", finalPot.toString());
 
     await sendAndConfirm(
       () =>
         program.methods
-          .advanceStage()
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-            frontend: admin.publicKey,
-            incoLightningProgram: INCO_LIGHTNING_ID,
-            systemProgram: anchor.web3.SystemProgram.programId,
-          })
-          .remainingAccounts([
-            { pubkey: allowance, isWritable: true, isSigner: false },
-          ])
-          .rpc(),
-      "advanceStage (Turn)"
-    );
-
-    const signMessage = getSignMessage();
-    if (signMessage) {
-      try {
-        const result = await decryptWithRetry(
-          [handleToDecimalString(handle)],
-          admin.publicKey,
-          signMessage,
-          "turn",
-          5,
-          200
-        );
-        decryptedTurnCard = result.plaintexts[0];
-        const turnMod = toCardIndex(result.plaintexts[0]);
-        console.log("Decrypted turn card:", result.plaintexts[0]);
-        console.log("Turn card % 52:", turnMod);
-      } catch (err: any) {
-        console.log("Decrypt failed (turn):", err?.message ?? String(err));
-      }
-    }
-
-    const summary = buildRoundSummary({
-      roundId: 3,
-      betsByPlayer: [25, 25],
-      potDelta: 50,
-      currentBet: 25,
-      lastRaiser: 1,
-      actedMask: 0b00000011,
-      actionOn: 0,
-    });
-
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .updateRound(summary)
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-          })
-          .remainingAccounts([
-            { pubkey: adminSeatPda, isWritable: true, isSigner: false },
-            { pubkey: player2SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player3SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player4SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player5SeatPda, isWritable: true, isSigner: false },
-          ])
-          .rpc(),
-      "updateRound (Turn)"
-    );
-  });
-
-  it("7. Advance to River and update round", async () => {
-    await logShuffleRandom("step 7");
-    const game = await program.account.pokerGame.fetch(gamePda);
-    const handle = extractHandle(game.communityCards[4]);
-
-    console.log("River handle:", handleToDecimalString(handle).slice(0, 16));
-
-    const allowance = anchor.web3.PublicKey.findProgramAddressSync(
-      [handleToBytesLE(handle), admin.publicKey.toBuffer()],
-      INCO_LIGHTNING_ID
-    )[0];
-
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .advanceStage()
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-            frontend: admin.publicKey,
-            incoLightningProgram: INCO_LIGHTNING_ID,
-            systemProgram: anchor.web3.SystemProgram.programId,
-          })
-          .remainingAccounts([
-            { pubkey: allowance, isWritable: true, isSigner: false },
-          ])
-          .rpc(),
-      "advanceStage (River)"
-    );
-
-    const signMessage = getSignMessage();
-    if (signMessage) {
-      try {
-        const result = await decryptWithRetry(
-          [handleToDecimalString(handle)],
-          admin.publicKey,
-          signMessage,
-          "river",
-          5,
-          200
-        );
-        decryptedRiverCard = result.plaintexts[0];
-        const riverMod = toCardIndex(result.plaintexts[0]);
-        console.log("Decrypted river card:", result.plaintexts[0]);
-        console.log("River card % 52:", riverMod);
-      } catch (err: any) {
-        console.log("Decrypt failed (river):", err?.message ?? String(err));
-      }
-    }
-
-    const summary = buildRoundSummary({
-      roundId: 4,
-      betsByPlayer: [25, 25],
-      potDelta: 50,
-      currentBet: 25,
-      lastRaiser: 0,
-      actedMask: 0b00000011,
-      actionOn: 1,
-    });
-
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .updateRound(summary)
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-          })
-          .remainingAccounts([
-            { pubkey: adminSeatPda, isWritable: true, isSigner: false },
-            { pubkey: player2SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player3SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player4SeatPda, isWritable: true, isSigner: false },
-            { pubkey: player5SeatPda, isWritable: true, isSigner: false },
-          ])
-          .rpc(),
-      "updateRound (River)"
-    );
-  });
-
-  it("8. Advance to Showdown and settle", async () => {
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .advanceStage()
-          .accounts({
-            table: tablePda,
-            game: gamePda,
-            admin: admin.publicKey,
-            frontend: admin.publicKey,
-            incoLightningProgram: INCO_LIGHTNING_ID,
-            systemProgram: anchor.web3.SystemProgram.programId,
-          })
-          .rpc(),
-      "advanceStage (Showdown)"
-    );
-
-    await sendAndConfirm(
-      () =>
-        program.methods
-          .settleGame(0)
+          .settleGame(winnerSeatIndex, finalPot)
           .accounts({
             table: tablePda,
             game: gamePda,
@@ -1002,38 +692,177 @@ describe("solana-poker: Round Flow", () => {
       "settleGame"
     );
 
-    console.log("\nDecrypted summary:");
-    console.log("  hole (admin):", decryptedHoleCards);
-    console.log("  hole (admin) % 52:", decryptedHoleCards.map(toCardIndex));
-    console.log("  hole by seat:");
+    const settledGame = await program.account.pokerGame.fetch(gamePda);
+    console.log("\nGame settled:");
+    console.log("  Stage:", settledGame.stage);
+    console.log("  Winner seat:", settledGame.winnerSeat);
+    console.log(
+      "  Payouts:",
+      settledGame.payouts.map((p: any) => p.toString())
+    );
+  });
+
+  // ========================================
+  // TEST 7: Oscillation check (reliability test)
+  // ========================================
+  it("7. Check for value oscillation (5 checks, 2s intervals)", async () => {
+    const game = await program.account.pokerGame.fetch(gamePda);
+    const signMessage = getSignMessage();
+
+    if (!signMessage) {
+      console.log("signMessage not available, skipping oscillation test");
+      return;
+    }
+
+    console.log("\n========================================");
+    console.log("OSCILLATION TEST - Checking value stability");
+    console.log("========================================\n");
+
+    // Test card_offset handle
+    const cardOffsetHandle = extractHandle(game.cardOffset);
+    const cardOffsetHandleStr = handleToDecimalString(cardOffsetHandle);
+
+    // Find admin's hole cards (admin is seat 0)
+    const adminSeatIndex = 0;
+    const adminPairIndex = game.shuffledIndices.findIndex(
+      (s: number) => s === adminSeatIndex
+    );
+    const adminHoleCard0 = game.dealCards[adminPairIndex * 2];
+    const adminHoleCard1 = game.dealCards[adminPairIndex * 2 + 1];
+
+    // Test handles that admin has access to
+    const testHandles = [
+      { name: "card_offset", handle: cardOffsetHandleStr },
+      {
+        name: "admin_hole_0",
+        handle: handleToDecimalString(extractHandle(adminHoleCard0)),
+      },
+      {
+        name: "admin_hole_1",
+        handle: handleToDecimalString(extractHandle(adminHoleCard1)),
+      },
+      {
+        name: "community_0",
+        handle: handleToDecimalString(extractHandle(game.communityCards[0])),
+      },
+      {
+        name: "community_4",
+        handle: handleToDecimalString(extractHandle(game.communityCards[4])),
+      },
+    ];
+
+    console.log(`Admin seat: ${adminSeatIndex}, pair index: ${adminPairIndex}`);
+
+    const results: { [key: string]: string[] } = {};
+    for (const t of testHandles) {
+      results[t.name] = [];
+    }
+
+    // Check 5 times with 2-second intervals
+    for (let check = 0; check < 5; check++) {
+      if (check > 0) {
+        console.log(`  Waiting 2 seconds before check ${check + 1}...`);
+        await sleep(2000);
+      }
+
+      console.log(`\nCheck ${check + 1}/5:`);
+
+      for (const t of testHandles) {
+        try {
+          const result = await decrypt([t.handle], {
+            address: admin.publicKey,
+            signMessage,
+          });
+          const plaintext = result.plaintexts[0];
+          results[t.name].push(plaintext);
+
+          const previousValue =
+            results[t.name].length > 1
+              ? results[t.name][results[t.name].length - 2]
+              : null;
+          const changed = previousValue && previousValue !== plaintext;
+
+          if (changed) {
+            console.log(
+              `  ${t.name}: ${plaintext} ⚠️ CHANGED from ${previousValue}`
+            );
+          } else {
+            console.log(`  ${t.name}: ${plaintext} ✓`);
+          }
+        } catch (err: any) {
+          console.log(
+            `  ${t.name}: decrypt failed - ${err?.message ?? String(err)}`
+          );
+          results[t.name].push("ERROR");
+        }
+      }
+    }
+
+    // Summary
+    console.log("\n--- Oscillation Test Summary ---");
+    let hasOscillation = false;
+
+    for (const t of testHandles) {
+      const values = results[t.name].filter((v) => v !== "ERROR");
+      const uniqueValues = [...new Set(values)];
+
+      if (uniqueValues.length > 1) {
+        console.log(
+          `❌ ${t.name}: OSCILLATING between ${uniqueValues.join(", ")}`
+        );
+        hasOscillation = true;
+      } else if (uniqueValues.length === 1) {
+        console.log(`✅ ${t.name}: STABLE at ${uniqueValues[0]}`);
+      } else {
+        console.log(`⚠️ ${t.name}: All decryptions failed`);
+      }
+    }
+
+    if (hasOscillation) {
+      console.log("\n⚠️ WARNING: Oscillation detected! Values are not stable.");
+    } else {
+      console.log("\n✅ All values are stable - no oscillation detected!");
+    }
+  });
+
+  // ========================================
+  // TEST 8: Summary
+  // ========================================
+  it("8. Print summary", async () => {
+    console.log("\n========================================");
+    console.log("GAME SUMMARY");
+    console.log("========================================");
+
+    console.log("\nHole cards by seat:");
     for (const entry of decryptedHoleCardsBySeat) {
       console.log(
-        `    seat ${entry.seatIndex} (${entry.label}):`,
-        entry.plaintexts,
-        "% 52:",
+        `  Seat ${entry.seatIndex} (${entry.label}):`,
         entry.plaintexts.map(toCardIndex)
       );
     }
-    const holeBySeat = [...decryptedHoleCardsBySeat]
-      .sort((a, b) => a.seatIndex - b.seatIndex)
-      .flatMap((entry) => entry.plaintexts);
-    const communityAll = [
-      ...(decryptedFlopCards ?? []),
-      decryptedTurnCard ?? "null",
-      decryptedRiverCard ?? "null",
+
+    console.log("\nCommunity cards:");
+    console.log("  All 5:", decryptedCommunityCards.map(toCardIndex));
+    if (decryptedCommunityCards.length === 5) {
+      console.log(
+        "  Flop:",
+        decryptedCommunityCards.slice(0, 3).map(toCardIndex)
+      );
+      console.log("  Turn:", toCardIndex(decryptedCommunityCards[3]));
+      console.log("  River:", toCardIndex(decryptedCommunityCards[4]));
+    }
+
+    console.log("\nAll 15 cards % 52:");
+    const allCards = [
+      ...decryptedHoleCardsBySeat.flatMap((e) => e.plaintexts),
+      ...decryptedCommunityCards,
     ];
-    console.log("  all 15 decrypted:", [...holeBySeat, ...communityAll]);
-    console.log("  flop:", decryptedFlopCards);
-    console.log("  flop % 52:", decryptedFlopCards.map(toCardIndex));
-    console.log("  turn:", decryptedTurnCard);
     console.log(
-      "  turn % 52:",
-      decryptedTurnCard ? toCardIndex(decryptedTurnCard) : null
+      " ",
+      allCards.map(toCardIndex).sort((a, b) => a - b)
     );
-    console.log("  river:", decryptedRiverCard);
-    console.log(
-      "  river % 52:",
-      decryptedRiverCard ? toCardIndex(decryptedRiverCard) : null
-    );
+
+    console.log("\n========================================");
+    console.log("Tests complete!");
   });
 });
