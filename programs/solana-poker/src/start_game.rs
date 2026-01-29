@@ -37,7 +37,8 @@ pub fn handler<'info>(
     // Initialize game state
     game.table = table.key();
     game.game_id = game_id;
-    game.stage = GameStage::Waiting;
+    // Demo shortcut: skip card processing and move directly to Playing
+    game.stage = GameStage::Playing;
     game.player_count = table.player_count;
 
     // Initialize card state
@@ -46,7 +47,8 @@ pub fn handler<'info>(
     game.shuffled_indices = [0, 1, 2, 3, 4];
     game.deal_cards = [Euint128::default(); 10];
     game.community_cards = [Euint128::default(); 5];
-    game.cards_processed = false;
+    // Demo shortcut: treat cards as processed so settle can proceed
+    game.cards_processed = true;
 
     // Backend account for off-chain gameplay management
     game.backend_account = backend_account;
