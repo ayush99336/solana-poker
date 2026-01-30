@@ -176,7 +176,7 @@ describe("solana-poker: Simplified Flow", () => {
             .accounts({
               table: tablePda,
               game: gamePda,
-              admin: admin.publicKey,
+              backend: admin.publicKey,
               player: admin.publicKey,
               incoLightningProgram: INCO_LIGHTNING_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
@@ -446,7 +446,7 @@ describe("solana-poker: Simplified Flow", () => {
             .accounts({
               table: tablePda,
               game: gamePda,
-              admin: admin.publicKey,
+              backend: admin.publicKey,
               incoLightningProgram: INCO_LIGHTNING_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
             })
@@ -541,7 +541,7 @@ describe("solana-poker: Simplified Flow", () => {
               game: gamePda,
               playerSeat: player.seatPda,
               player: player.publicKey,
-              admin: admin.publicKey,
+              backend: admin.publicKey,
               incoLightningProgram: INCO_LIGHTNING_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
             })
@@ -614,7 +614,6 @@ describe("solana-poker: Simplified Flow", () => {
           .accounts({
             table: tablePda,
             game: gamePda,
-            admin: admin.publicKey,
             backend: admin.publicKey,
             incoLightningProgram: INCO_LIGHTNING_ID,
             systemProgram: anchor.web3.SystemProgram.programId,
@@ -624,36 +623,46 @@ describe("solana-poker: Simplified Flow", () => {
       "revealCommunity"
     );
 
-    // Decrypt all community cards
+    // Decrypt all community cards (add extra delay for allowance propagation)
+    // NOTE: Backend created these handles, so it should have implicit access
+    // The reveal_community call explicitly grants access as well
+    await sleep(3000);
     const signMessage = getSignMessage();
     if (signMessage) {
       const handles = communityHandles.map((h: any) =>
         handleToDecimalString(h)
       );
-      try {
-        const result = await decryptWithRetry(
-          handles,
-          admin.publicKey,
-          signMessage,
-          "community cards",
-          5,
-          200
-        );
-        decryptedCommunityCards = result.plaintexts;
-        console.log("\nCommunity cards decrypted:");
-        console.log("  Raw:", result.plaintexts);
-        console.log("  % 52:", result.plaintexts.map(toCardIndex));
+      
+      // Try decrypting one at a time to isolate issues
+      for (let i = 0; i < handles.length; i++) {
+        try {
+          const result = await decryptWithRetry(
+            [handles[i]],
+            admin.publicKey,
+            signMessage,
+            `community card ${i}`,
+            5,
+            500
+          );
+          decryptedCommunityCards.push(result.plaintexts[0]);
+          console.log(`Community card ${i}:`, toCardIndex(result.plaintexts[0]));
+        } catch (err: any) {
+          console.log(
+            `Community card ${i} decrypt failed:`,
+            err?.message ?? String(err)
+          );
+        }
+      }
+      
+      if (decryptedCommunityCards.length === 5) {
+        console.log("\nAll community cards decrypted:");
+        console.log("  % 52:", decryptedCommunityCards.map(toCardIndex));
         console.log(
-          "\n  Flop:",
-          result.plaintexts.slice(0, 3).map(toCardIndex)
+          "  Flop:",
+          decryptedCommunityCards.slice(0, 3).map(toCardIndex)
         );
-        console.log("  Turn:", toCardIndex(result.plaintexts[3]));
-        console.log("  River:", toCardIndex(result.plaintexts[4]));
-      } catch (err: any) {
-        console.log(
-          "Community cards decrypt failed:",
-          err?.message ?? String(err)
-        );
+        console.log("  Turn:", toCardIndex(decryptedCommunityCards[3]));
+        console.log("  River:", toCardIndex(decryptedCommunityCards[4]));
       }
     }
   });
@@ -685,145 +694,142 @@ describe("solana-poker: Simplified Flow", () => {
             winnerSeat: adminSeatPda,
             winnerWallet: admin.publicKey,
             vault: vaultPda,
-            admin: admin.publicKey,
+            backend: admin.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc(),
       "settleGame"
     );
 
-    const settledGame = await program.account.pokerGame.fetch(gamePda);
+    // Game PDA is closed after settlement, so we can't fetch it anymore
     console.log("\nGame settled:");
-    console.log("  Stage:", settledGame.stage);
-    console.log("  Winner seat:", settledGame.winnerSeat);
-    console.log(
-      "  Payouts:",
-      settledGame.payouts.map((p: any) => p.toString())
-    );
+    console.log("  Game PDA closed (rent reclaimed to backend)");
+    console.log("  Winner: seat", winnerSeatIndex);
+    console.log("  Payout:", finalPot.toString(), "lamports");
   });
 
   // ========================================
   // TEST 7: Oscillation check (reliability test)
   // ========================================
-  it("7. Check for value oscillation (5 checks, 2s intervals)", async () => {
-    const game = await program.account.pokerGame.fetch(gamePda);
-    const signMessage = getSignMessage();
+  // it("7. Check for value oscillation (5 checks, 2s intervals)", async () => {
+  //   const game = await program.account.pokerGame.fetch(gamePda);
+  //   const signMessage = getSignMessage();
 
-    if (!signMessage) {
-      console.log("signMessage not available, skipping oscillation test");
-      return;
-    }
+  //   if (!signMessage) {
+  //     console.log("signMessage not available, skipping oscillation test");
+  //     return;
+  //   }
 
-    console.log("\n========================================");
-    console.log("OSCILLATION TEST - Checking value stability");
-    console.log("========================================\n");
+  //   console.log("\n========================================");
+  //   console.log("OSCILLATION TEST - Checking value stability");
+  //   console.log("========================================\n");
 
-    // Test card_offset handle
-    const cardOffsetHandle = extractHandle(game.cardOffset);
-    const cardOffsetHandleStr = handleToDecimalString(cardOffsetHandle);
+  //   // Test card_offset handle
+  //   const cardOffsetHandle = extractHandle(game.cardOffset);
+  //   const cardOffsetHandleStr = handleToDecimalString(cardOffsetHandle);
 
-    // Find admin's hole cards (admin is seat 0)
-    const adminSeatIndex = 0;
-    const adminPairIndex = game.shuffledIndices.findIndex(
-      (s: number) => s === adminSeatIndex
-    );
-    const adminHoleCard0 = game.dealCards[adminPairIndex * 2];
-    const adminHoleCard1 = game.dealCards[adminPairIndex * 2 + 1];
+  //   // Find admin's hole cards (admin is seat 0)
+  //   const adminSeatIndex = 0;
+  //   const adminPairIndex = game.shuffledIndices.findIndex(
+  //     (s: number) => s === adminSeatIndex
+  //   );
+  //   const adminHoleCard0 = game.dealCards[adminPairIndex * 2];
+  //   const adminHoleCard1 = game.dealCards[adminPairIndex * 2 + 1];
 
-    // Test handles that admin has access to
-    const testHandles = [
-      { name: "card_offset", handle: cardOffsetHandleStr },
-      {
-        name: "admin_hole_0",
-        handle: handleToDecimalString(extractHandle(adminHoleCard0)),
-      },
-      {
-        name: "admin_hole_1",
-        handle: handleToDecimalString(extractHandle(adminHoleCard1)),
-      },
-      {
-        name: "community_0",
-        handle: handleToDecimalString(extractHandle(game.communityCards[0])),
-      },
-      {
-        name: "community_4",
-        handle: handleToDecimalString(extractHandle(game.communityCards[4])),
-      },
-    ];
+  //   // Test handles that admin has access to
+  //   const testHandles = [
+  //     { name: "card_offset", handle: cardOffsetHandleStr },
+  //     {
+  //       name: "admin_hole_0",
+  //       handle: handleToDecimalString(extractHandle(adminHoleCard0)),
+  //     },
+  //     {
+  //       name: "admin_hole_1",
+  //       handle: handleToDecimalString(extractHandle(adminHoleCard1)),
+  //     },
+  //     {
+  //       name: "community_0",
+  //       handle: handleToDecimalString(extractHandle(game.communityCards[0])),
+  //     },
+  //     {
+  //       name: "community_4",
+  //       handle: handleToDecimalString(extractHandle(game.communityCards[4])),
+  //     },
+  //   ];
 
-    console.log(`Admin seat: ${adminSeatIndex}, pair index: ${adminPairIndex}`);
+  //   console.log(`Admin seat: ${adminSeatIndex}, pair index: ${adminPairIndex}`);
 
-    const results: { [key: string]: string[] } = {};
-    for (const t of testHandles) {
-      results[t.name] = [];
-    }
+  //   const results: { [key: string]: string[] } = {};
+  //   for (const t of testHandles) {
+  //     results[t.name] = [];
+  //   }
 
-    // Check 5 times with 2-second intervals
-    for (let check = 0; check < 5; check++) {
-      if (check > 0) {
-        console.log(`  Waiting 2 seconds before check ${check + 1}...`);
-        await sleep(2000);
-      }
+  //   // Check 5 times with 2-second intervals
+  //   for (let check = 0; check < 5; check++) {
+  //     if (check > 0) {
+  //       console.log(`  Waiting 2 seconds before check ${check + 1}...`);
+  //       await sleep(2000);
+  //     }
 
-      console.log(`\nCheck ${check + 1}/5:`);
+  //     console.log(`\nCheck ${check + 1}/5:`);
 
-      for (const t of testHandles) {
-        try {
-          const result = await decrypt([t.handle], {
-            address: admin.publicKey,
-            signMessage,
-          });
-          const plaintext = result.plaintexts[0];
-          results[t.name].push(plaintext);
+  //     for (const t of testHandles) {
+  //       try {
+  //         const result = await decrypt([t.handle], {
+  //           address: admin.publicKey,
+  //           signMessage,
+  //         });
+  //         const plaintext = result.plaintexts[0];
+  //         results[t.name].push(plaintext);
 
-          const previousValue =
-            results[t.name].length > 1
-              ? results[t.name][results[t.name].length - 2]
-              : null;
-          const changed = previousValue && previousValue !== plaintext;
+  //         const previousValue =
+  //           results[t.name].length > 1
+  //             ? results[t.name][results[t.name].length - 2]
+  //             : null;
+  //         const changed = previousValue && previousValue !== plaintext;
 
-          if (changed) {
-            console.log(
-              `  ${t.name}: ${plaintext} ⚠️ CHANGED from ${previousValue}`
-            );
-          } else {
-            console.log(`  ${t.name}: ${plaintext} ✓`);
-          }
-        } catch (err: any) {
-          console.log(
-            `  ${t.name}: decrypt failed - ${err?.message ?? String(err)}`
-          );
-          results[t.name].push("ERROR");
-        }
-      }
-    }
+  //         if (changed) {
+  //           console.log(
+  //             `  ${t.name}: ${plaintext} ⚠️ CHANGED from ${previousValue}`
+  //           );
+  //         } else {
+  //           console.log(`  ${t.name}: ${plaintext} ✓`);
+  //         }
+  //       } catch (err: any) {
+  //         console.log(
+  //           `  ${t.name}: decrypt failed - ${err?.message ?? String(err)}`
+  //         );
+  //         results[t.name].push("ERROR");
+  //       }
+  //     }
+  //   }
 
-    // Summary
-    console.log("\n--- Oscillation Test Summary ---");
-    let hasOscillation = false;
+  //   // Summary
+  //   console.log("\n--- Oscillation Test Summary ---");
+  //   let hasOscillation = false;
 
-    for (const t of testHandles) {
-      const values = results[t.name].filter((v) => v !== "ERROR");
-      const uniqueValues = [...new Set(values)];
+  //   for (const t of testHandles) {
+  //     const values = results[t.name].filter((v) => v !== "ERROR");
+  //     const uniqueValues = [...new Set(values)];
 
-      if (uniqueValues.length > 1) {
-        console.log(
-          `❌ ${t.name}: OSCILLATING between ${uniqueValues.join(", ")}`
-        );
-        hasOscillation = true;
-      } else if (uniqueValues.length === 1) {
-        console.log(`✅ ${t.name}: STABLE at ${uniqueValues[0]}`);
-      } else {
-        console.log(`⚠️ ${t.name}: All decryptions failed`);
-      }
-    }
+  //     if (uniqueValues.length > 1) {
+  //       console.log(
+  //         `❌ ${t.name}: OSCILLATING between ${uniqueValues.join(", ")}`
+  //       );
+  //       hasOscillation = true;
+  //     } else if (uniqueValues.length === 1) {
+  //       console.log(`✅ ${t.name}: STABLE at ${uniqueValues[0]}`);
+  //     } else {
+  //       console.log(`⚠️ ${t.name}: All decryptions failed`);
+  //     }
+  //   }
 
-    if (hasOscillation) {
-      console.log("\n⚠️ WARNING: Oscillation detected! Values are not stable.");
-    } else {
-      console.log("\n✅ All values are stable - no oscillation detected!");
-    }
-  });
+  //   if (hasOscillation) {
+  //     console.log("\n⚠️ WARNING: Oscillation detected! Values are not stable.");
+  //   } else {
+  //     console.log("\n✅ All values are stable - no oscillation detected!");
+  //   }
+  // });
 
   // ========================================
   // TEST 8: Summary

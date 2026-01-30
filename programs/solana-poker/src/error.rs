@@ -44,6 +44,9 @@ pub enum PokerError {
     #[msg("Only admin can perform this action")]
     NotAdmin,
 
+    #[msg("Only backend can perform this action")]
+    NotBackend,
+
     #[msg("Cards not processed yet")]
     CardsNotSubmitted,
 
@@ -91,4 +94,7 @@ pub enum PokerError {
 
     #[msg("Not enough allowance accounts provided")]
     MissingAllowanceAccounts,
+
+    #[msg("Invalid refund accounts provided")]
+    InvalidRefundAccounts,
 }

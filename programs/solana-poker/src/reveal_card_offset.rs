@@ -15,7 +15,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealCardOffset<'info>>) 
 
     let game = &ctx.accounts.game;
     let cpi_program = ctx.accounts.inco_lightning_program.to_account_info();
-    let authority = ctx.accounts.admin.to_account_info();
+    let authority = ctx.accounts.backend.to_account_info();
     let allowed_player = ctx.accounts.player.to_account_info();
     let allowance_acc = &ctx.remaining_accounts[0];
 
@@ -39,9 +39,6 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealCardOffset<'info>>) 
 
 #[derive(Accounts)]
 pub struct RevealCardOffset<'info> {
-    #[account(
-        constraint = table.admin == admin.key() @ PokerError::NotAdmin
-    )]
     pub table: Account<'info, PokerTable>,
 
     #[account(
@@ -49,8 +46,11 @@ pub struct RevealCardOffset<'info> {
     )]
     pub game: Account<'info, PokerGame>,
 
-    #[account(mut)]
-    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        constraint = backend.key() == game.backend_account @ PokerError::NotBackend
+    )]
+    pub backend: Signer<'info>,
 
     /// CHECK: player receiving decrypt access
     pub player: UncheckedAccount<'info>,

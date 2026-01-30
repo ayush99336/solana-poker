@@ -37,7 +37,7 @@ pub fn handler<'info>(
     require!(batch_index < 8, PokerError::InvalidBatchIndex);
 
     let cpi_program = ctx.accounts.inco_lightning_program.to_account_info();
-    let authority = ctx.accounts.admin.to_account_info();
+    let authority = ctx.accounts.backend.to_account_info();
 
     let op_accounts = Operation {
         signer: authority.clone(),
@@ -152,7 +152,7 @@ fn do_simple_shuffle(slot: u64) -> [u8; 5] {
 #[instruction(batch_index: u8)]
 pub struct ProcessCardsBatch<'info> {
     #[account(
-        constraint = table.admin == admin.key() @ PokerError::NotAdmin
+        constraint = table.admin == backend.key() @ PokerError::NotBackend
     )]
     pub table: Account<'info, PokerTable>,
 
@@ -163,8 +163,11 @@ pub struct ProcessCardsBatch<'info> {
     )]
     pub game: Account<'info, PokerGame>,
 
-    #[account(mut)]
-    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        constraint = backend.key() == game.backend_account @ PokerError::NotBackend
+    )]
+    pub backend: Signer<'info>,
 
     pub inco_lightning_program: Program<'info, IncoLightning>,
 

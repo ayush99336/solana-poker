@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 
 /// Settle the game and pay out the winner
 ///
-/// Called by admin/backend after off-chain gameplay completes.
+/// Called by backend after off-chain gameplay completes.
 /// Accepts the final pot amount and winner seat index.
 ///
 /// Flow:
@@ -75,13 +75,13 @@ pub fn handler(ctx: Context<SettleGame>, winner_seat_index: u8, final_pot: u64) 
 #[instruction(winner_seat_index: u8, final_pot: u64)]
 pub struct SettleGame<'info> {
     #[account(
-        mut,
-        constraint = table.admin == admin.key() @ PokerError::NotAdmin
+        mut
     )]
     pub table: Account<'info, PokerTable>,
 
     #[account(
         mut,
+        close = backend,
         constraint = game.table == table.key() @ PokerError::NoActiveGame,
         constraint = game.stage == GameStage::Playing @ PokerError::InvalidGameStage
     )]
@@ -108,8 +108,11 @@ pub struct SettleGame<'info> {
     )]
     pub vault: AccountInfo<'info>,
 
-    #[account(mut)]
-    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        constraint = backend.key() == game.backend_account @ PokerError::NotBackend
+    )]
+    pub backend: Signer<'info>,
 
     pub system_program: Program<'info, System>,
 }

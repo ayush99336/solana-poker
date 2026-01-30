@@ -8,7 +8,7 @@ pub mod state;
 
 pub mod create_table;
 pub mod join_table;
-pub mod leave_table;
+pub mod refund_all;
 pub mod process_cards;
 pub mod reveal_card_offset;
 pub mod reveal_community;
@@ -18,7 +18,7 @@ pub mod start_game;
 
 use create_table::*;
 use join_table::*;
-use leave_table::*;
+use refund_all::*;
 use process_cards::*;
 use reveal_card_offset::*;
 use reveal_community::*;
@@ -56,9 +56,11 @@ pub mod solana_poker {
         join_table::handler(ctx, buy_in)
     }
 
-    /// Player leaves table and withdraws chips
-    pub fn leave_table(ctx: Context<LeaveTable>, amount: u64) -> Result<()> {
-        leave_table::handler(ctx, amount)
+    /// Backend refunds all players and clears table
+    pub fn refund_all<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RefundAll<'info>>,
+    ) -> Result<()> {
+        refund_all::handler(ctx)
     }
 
     /// Admin starts a new game with blind bets
@@ -123,7 +125,7 @@ pub mod solana_poker {
 
     /// Settle the game and pay the winner
     ///
-    /// Called by admin/backend after off-chain gameplay completes.
+    /// Called by backend after off-chain gameplay completes.
     /// Transfers final_pot from vault to winner's wallet.
     pub fn settle_game(
         ctx: Context<SettleGame>,

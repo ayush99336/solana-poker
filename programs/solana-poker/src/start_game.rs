@@ -28,6 +28,10 @@ pub fn handler<'info>(
         ctx.accounts.admin.key() == table.admin,
         PokerError::NotAdmin
     );
+    require!(
+        backend_account == ctx.accounts.admin.key(),
+        PokerError::NotBackend
+    );
     require!(table.current_game.is_none(), PokerError::GameInProgress);
     require!(
         table.player_count >= MIN_PLAYERS,

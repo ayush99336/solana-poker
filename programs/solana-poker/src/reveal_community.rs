@@ -23,7 +23,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealCommunity<'info>>) -
     require!(game.cards_processed, PokerError::CardsNotProcessed);
 
     let cpi_program = ctx.accounts.inco_lightning_program.to_account_info();
-    let authority = ctx.accounts.admin.to_account_info();
+    let authority = ctx.accounts.backend.to_account_info();
     let backend = ctx.accounts.backend.to_account_info();
 
     // Allow backend to decrypt all 5 community cards
@@ -56,7 +56,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealCommunity<'info>>) -
 #[derive(Accounts)]
 pub struct RevealCommunity<'info> {
     #[account(
-        constraint = table.admin == admin.key() @ PokerError::NotAdmin
+        constraint = table.admin == backend.key() @ PokerError::NotBackend
     )]
     pub table: Account<'info, PokerTable>,
 
@@ -66,15 +66,12 @@ pub struct RevealCommunity<'info> {
     )]
     pub game: Account<'info, PokerGame>,
 
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    /// CHECK: Backend account receiving decrypt access for all community cards
-    /// This should match game.backend_account
+    /// CHECK: Backend signer receiving decrypt access for all community cards
     #[account(
-        constraint = backend.key() == game.backend_account @ PokerError::NotAdmin
+        mut,
+        constraint = backend.key() == game.backend_account @ PokerError::NotBackend
     )]
-    pub backend: UncheckedAccount<'info>,
+    pub backend: Signer<'info>,
 
     pub inco_lightning_program: Program<'info, IncoLightning>,
 

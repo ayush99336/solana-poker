@@ -52,9 +52,9 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealHand<'info>>) -> Res
         card_2_idx
     );
 
-    // CPI to Inco to allow access (admin is the handle owner)
+    // CPI to Inco to allow access (backend is the handle owner)
     let cpi_program = ctx.accounts.inco_lightning_program.to_account_info();
-    let authority = ctx.accounts.admin.to_account_info();
+    let authority = ctx.accounts.backend.to_account_info();
     let allowed_player = ctx.accounts.player.to_account_info();
 
     // Allow Card 1
@@ -112,9 +112,9 @@ pub struct RevealHand<'info> {
 
     #[account(
         mut,
-        constraint = table.admin == admin.key() @ PokerError::NotAdmin
+        constraint = backend.key() == game.backend_account @ PokerError::NotBackend
     )]
-    pub admin: Signer<'info>,
+    pub backend: Signer<'info>,
 
     pub inco_lightning_program: Program<'info, IncoLightning>,
 
