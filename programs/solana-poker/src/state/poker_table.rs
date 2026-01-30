@@ -4,8 +4,10 @@ use anchor_lang::prelude::*;
 /// Stores table settings and current game reference
 #[account]
 pub struct PokerTable {
-    /// Admin who created and manages the table
-    pub admin: Pubkey,
+    /// Player who created the table (for UI display)
+    pub creator: Pubkey,
+    /// Backend authority for game operations
+    pub backend: Pubkey,
     /// Unique table identifier
     pub table_id: u64,
     /// Maximum players allowed (2-5)
@@ -25,8 +27,8 @@ pub struct PokerTable {
 }
 
 impl PokerTable {
-    /// Account discriminator (8) + admin (32) + table_id (8) + max_players (1) 
+    /// Account discriminator (8) + creator (32) + backend (32) + table_id (8) + max_players (1) 
     /// + buy_in_min (8) + buy_in_max (8) + small_blind (8) + current_game (1 + 32) 
     /// + player_count (1) + bump (1)
-    pub const LEN: usize = 8 + 32 + 8 + 1 + 8 + 8 + 8 + 33 + 1 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 1 + 8 + 8 + 8 + 33 + 1 + 1;
 }

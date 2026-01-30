@@ -56,7 +56,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RevealCommunity<'info>>) -
 #[derive(Accounts)]
 pub struct RevealCommunity<'info> {
     #[account(
-        constraint = table.admin == backend.key() @ PokerError::NotBackend
+        constraint = table.backend == backend.key() @ PokerError::NotBackend
     )]
     pub table: Account<'info, PokerTable>,
 

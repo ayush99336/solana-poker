@@ -23,13 +23,13 @@ pub fn handler<'info>(
     let table = &mut ctx.accounts.table;
     let game = &mut ctx.accounts.game;
 
-    // Validate
+    // Validate backend authority
     require!(
-        ctx.accounts.admin.key() == table.admin,
-        PokerError::NotAdmin
+        ctx.accounts.backend.key() == table.backend,
+        PokerError::NotBackend
     );
     require!(
-        backend_account == ctx.accounts.admin.key(),
+        backend_account == ctx.accounts.backend.key(),
         PokerError::NotBackend
     );
     require!(table.current_game.is_none(), PokerError::GameInProgress);
@@ -120,13 +120,13 @@ pub fn handler<'info>(
 pub struct StartGame<'info> {
     #[account(
         mut,
-        constraint = table.admin == admin.key() @ PokerError::NotAdmin
+        constraint = table.backend == backend.key() @ PokerError::NotBackend
     )]
     pub table: Account<'info, PokerTable>,
 
     #[account(
         init,
-        payer = admin,
+        payer = backend,
         space = PokerGame::LEN,
         seeds = [b"game", table.key().as_ref(), &game_id.to_le_bytes()],
         bump
@@ -134,7 +134,7 @@ pub struct StartGame<'info> {
     pub game: Account<'info, PokerGame>,
 
     #[account(mut)]
-    pub admin: Signer<'info>,
+    pub backend: Signer<'info>,
 
     pub system_program: Program<'info, System>,
 }

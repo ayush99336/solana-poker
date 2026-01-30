@@ -40,6 +40,7 @@ pub mod solana_poker {
         buy_in_min: u64,
         buy_in_max: u64,
         small_blind: u64,
+        backend_account: Pubkey,
     ) -> Result<()> {
         create_table::handler(
             ctx,
@@ -48,6 +49,7 @@ pub mod solana_poker {
             buy_in_min,
             buy_in_max,
             small_blind,
+            backend_account,
         )
     }
 

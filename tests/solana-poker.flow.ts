@@ -43,11 +43,12 @@ describe("solana-poker: Simplified Flow", () => {
   let player4SeatPda: anchor.web3.PublicKey;
   let player5SeatPda: anchor.web3.PublicKey;
 
-  async function sendAndConfirm(fn: () => Promise<string>, desc: string) {
-    const sig = await fn();
-    await connection.confirmTransaction(sig, "confirmed");
-    return sig;
-  }
+async function sendAndConfirm(fn: () => Promise<string>, desc: string) {
+  const sig = await fn();
+  console.log(`  ${desc} \n tx: ${sig} \n`);
+  await connection.confirmTransaction(sig, "confirmed");
+  return sig;
+}
 
   const sleep = (ms: number) =>
     new Promise((resolve) => setTimeout(resolve, ms));
@@ -309,11 +310,11 @@ describe("solana-poker: Simplified Flow", () => {
     await sendAndConfirm(
       () =>
         program.methods
-          .createTable(tableId, maxPlayers, buyInMin, buyInMax, smallBlind)
+          .createTable(tableId, maxPlayers, buyInMin, buyInMax, smallBlind, admin.publicKey)
           .accounts({
             table: tablePda,
             vault: vaultPda,
-            admin: admin.publicKey,
+            creator: admin.publicKey,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc(),
@@ -551,6 +552,7 @@ describe("solana-poker: Simplified Flow", () => {
             ])
             .rpc(),
         `revealHand(${player.label})`
+        
       );
 
       if (player.signMessage) {
